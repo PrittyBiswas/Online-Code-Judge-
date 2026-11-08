@@ -1,8 +1,6 @@
-import React from 'react';
-
 export function App() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6">
+    <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-slate-900 text-slate-100">
       <div className="max-w-xl text-center space-y-4">
         <h1 className="text-4xl font-bold tracking-tight text-indigo-400">
           Online Code Judge
@@ -24,4 +22,3 @@ export function App() {
 }
 
 export default App;
-
