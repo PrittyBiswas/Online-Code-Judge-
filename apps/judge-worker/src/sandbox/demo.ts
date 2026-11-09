@@ -1,36 +1,112 @@
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { runInSandbox } from './runner.js';
 
-async function main() {
-  console.log('=====================================================');
-  console.log('       WEEK 1 DEMO: SANDBOX CONTAINER RUNNER        ');
-  console.log('=====================================================\n');
-
-  // Test 1: Simple valid submission
-  console.log('--> Running Test 1: Valid Code (Simple Math)...');
-  const result1 = await runInSandbox({
-    code: `console.log(2 + 2);`,
-    input: '',
-    timeLimitMs: 2000,
-  });
-  console.log(`Result 1 Verdict: ${result1.verdict}`);
-  console.log(`Output: ${result1.stdout.trim()}`);
-  console.log(`Duration: ${result1.executionTimeMs}ms\n`);
-
-  // Test 2: Infinite loop (AC-SAFE-01)
-  console.log('--> Running Test 2: Hostile Infinite Loop (while(true){})...');
-  const result2 = await runInSandbox({
-    code: `while(true) {}`,
-    input: '',
-    timeLimitMs: 1500, // 1.5s timeout
-  });
-  console.log(`Result 2 Verdict: ${result2.verdict}`);
-  console.log(`Duration: ${result2.executionTimeMs}ms`);
-  console.log(`Error/Stderr: ${result2.stderr}\n`);
-
-  console.log('=====================================================');
-  console.log('WEEK 1 DEMO FINISHED SUCCESSFULLY!');
-  console.log('=====================================================');
+interface AttackScenario {
+  name: string;
+  codePath: string;
+  expectedVerdict: string;
+  input: string;
 }
 
-main().catch(console.error);
+const ATTACK_ROOT = resolve('../../attack-suite');
 
+const scenarios: AttackScenario[] = [
+  {
+    name: 'Infinite Loop → TLE',
+    codePath: `${ATTACK_ROOT}/infinite-loop/index.js`,
+    expectedVerdict: 'TIME_LIMIT_EXCEEDED',
+    input: '',
+  },
+  {
+    name: 'Memory Bomb → MLE',
+    codePath: `${ATTACK_ROOT}/memory-bomb/index.js`,
+    expectedVerdict: 'MEMORY_LIMIT_EXCEEDED',
+    input: '',
+  },
+  {
+    name: 'Output Flood → OLE',
+    codePath: `${ATTACK_ROOT}/output-flood/index.js`,
+    expectedVerdict: 'OUTPUT_LIMIT_EXCEEDED',
+    input: '',
+  },
+  {
+    name: 'Network Attempt → RE',
+    codePath: `${ATTACK_ROOT}/network-attempt/index.js`,
+    expectedVerdict: 'RUNTIME_ERROR',
+    input: '',
+  },
+  {
+    name: 'Happy Path: 2 + 3 = 5',
+    codePath: '',
+    expectedVerdict: 'ACCEPTED',
+    input: '2 3',
+  },
+];
+
+// Inline happy-path code
+const happyPathCode = `
+const lines = [];
+process.stdin.on('data', d => lines.push(d));
+process.stdin.on('end', () => {
+  const [a, b] = lines.join('').trim().split(/\\s+/).map(Number);
+  console.log(a + b);
+});
+`;
+
+async function runAttackSuite(): Promise<void> {
+  console.log('\n╔══════════════════════════════════════╗');
+  console.log('║   SANDBOX ATTACK SUITE VERIFICATION  ║');
+  console.log('╚══════════════════════════════════════╝\n');
+
+  let passed = 0;
+  let failed = 0;
+
+  for (const scenario of scenarios) {
+    let code: string;
+    try {
+      code = scenario.codePath
+        ? readFileSync(scenario.codePath, 'utf-8')
+        : happyPathCode;
+    } catch {
+      console.log(`⚠️  Skipping "${scenario.name}" — attack file not found at ${scenario.codePath}`);
+      console.log('   (Run from monorepo root or ensure attack-suite/ exists)\n');
+      continue;
+    }
+
+    process.stdout.write(`  Testing: ${scenario.name} ... `);
+
+    const result = await runInSandbox({
+      code,
+      input: scenario.input,
+      timeLimitMs: 2000,
+      memoryLimitMb: 128,
+    });
+
+    const isPass = result.verdict === scenario.expectedVerdict;
+    if (isPass) {
+      passed++;
+      console.log(`✅ PASS  (verdict: ${result.verdict}, time: ${result.executionTimeMs}ms)`);
+    } else {
+      failed++;
+      console.log(`❌ FAIL  (expected: ${scenario.expectedVerdict}, got: ${result.verdict})`);
+      if (result.stderr) {
+        console.log(`         stderr: ${result.stderr.substring(0, 120)}`);
+      }
+    }
+  }
+
+  console.log(`\n  Results: ${passed} passed, ${failed} failed\n`);
+
+  if (failed > 0) {
+    console.error('  ⚠️  Some sandbox security checks FAILED. Review docker flags.\n');
+    process.exit(1);
+  } else {
+    console.log('  🔒 All sandbox security checks PASSED.\n');
+  }
+}
+
+runAttackSuite().catch((err) => {
+  console.error('Demo runner error:', err);
+  process.exit(1);
+});

@@ -1,0 +1,12 @@
+# Prettier ignore — files that should NOT be auto-formatted
+node_modules/
+dist/
+build/
+.pnpm-store/
+coverage/
+*.lock
+pnpm-lock.yaml
+package-lock.json
+*.tsbuildinfo
+apps/frontend/dist/
+
