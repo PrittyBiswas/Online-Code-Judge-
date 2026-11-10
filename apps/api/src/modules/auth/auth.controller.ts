@@ -20,7 +20,7 @@ export class AuthController {
         data: { user, token },
       });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -41,11 +41,11 @@ export class AuthController {
         data: { user, token },
       });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
-  async logout(req: Request, res: Response) {
+  async logout(_req: Request, res: Response) {
     res.clearCookie('token', {
       httpOnly: true,
       sameSite: 'lax',
@@ -63,4 +63,3 @@ export class AuthController {
 }
 
 export const authController = new AuthController();
-

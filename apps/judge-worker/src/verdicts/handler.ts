@@ -1,7 +1,6 @@
 import Redis from 'ioredis';
 import {
   Verdict,
-  SubmissionStatus,
   SubmissionEvent,
   REDIS_KEYS,
   encodeLeaderboardScore,
@@ -14,7 +13,12 @@ export interface VerdictSaveOptions {
   problemId: string;
   userId: string;
   evaluation: EvaluatedSubmission;
-  dbUpdateFn?: (id: string, verdict: Verdict, execTime: number, failedIndex?: number) => Promise<boolean>;
+  dbUpdateFn?: (
+    id: string,
+    verdict: Verdict,
+    execTime: number,
+    failedIndex?: number
+  ) => Promise<boolean>;
   redisPublisher?: Redis;
 }
 
@@ -70,7 +74,10 @@ export class VerdictHandler {
           const { problemsSolved, totalPenaltySeconds } = decodeLeaderboardScore(currentScore);
           const penalty = Math.floor(evaluation.maxExecutionTimeMs / 1000);
 
-          const newScore = encodeLeaderboardScore(problemsSolved + 1, totalPenaltySeconds + penalty);
+          const newScore = encodeLeaderboardScore(
+            problemsSolved + 1,
+            totalPenaltySeconds + penalty
+          );
           await redisPublisher.zadd(REDIS_KEYS.GLOBAL_LEADERBOARD, newScore, userId);
         }
       } catch {}
@@ -81,4 +88,3 @@ export class VerdictHandler {
 }
 
 export const verdictHandler = new VerdictHandler();
-

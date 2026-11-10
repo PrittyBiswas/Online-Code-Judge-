@@ -5,10 +5,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@judge/shared": "*",
+    "@judge/shared": "workspace:*",
     "bullmq": "^5.4.1",
     "ioredis": "^5.3.2",
     "pino": "^8.19.0"
@@ -19,4 +20,3 @@
     "typescript": "^5.3.3"
   }
 }
-

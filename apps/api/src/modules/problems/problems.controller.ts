@@ -9,7 +9,7 @@ export class ProblemsController {
       const problem = await problemsService.createProblem(req.user!.id, input);
       return res.status(201).json({ data: { problem } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -19,7 +19,7 @@ export class ProblemsController {
       const problem = await problemsService.getProblem(id);
       return res.status(200).json({ data: { problem } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -30,7 +30,7 @@ export class ProblemsController {
       const problem = await problemsService.updateProblem(id, input);
       return res.status(200).json({ data: { problem } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -40,10 +40,9 @@ export class ProblemsController {
       const result = await problemsService.listProblems(queryParams);
       return res.status(200).json({ data: result });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 }
 
 export const problemsController = new ProblemsController();
-

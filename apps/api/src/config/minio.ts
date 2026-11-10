@@ -1,6 +1,4 @@
-import http from 'http';
 import { env } from './env.js';
-import { logger } from '../utils/logger.js';
 
 /**
  * MinIO S3-compatible client service.
@@ -9,7 +7,6 @@ import { logger } from '../utils/logger.js';
  */
 class MinioService {
   private inMemoryFallback = new Map<string, string>();
-  private bucketCreated = false;
 
   public async putObject(key: string, content: string): Promise<string> {
     try {
@@ -64,4 +61,3 @@ class MinioService {
 }
 
 export const minioService = new MinioService();
-

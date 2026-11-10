@@ -31,7 +31,9 @@ describe('Shared Schema Validations', () => {
     });
 
     it('validates login schema', () => {
-      expect(loginSchema.safeParse({ usernameOrEmail: 'alice', password: 'pwd' }).success).toBe(true);
+      expect(loginSchema.safeParse({ usernameOrEmail: 'alice', password: 'pwd' }).success).toBe(
+        true
+      );
       expect(loginSchema.safeParse({ usernameOrEmail: '', password: '' }).success).toBe(false);
     });
   });
@@ -40,7 +42,8 @@ describe('Shared Schema Validations', () => {
     it('accepts valid problem creation data', () => {
       const problem = {
         title: 'Two Sum Problem',
-        statement: 'Given an array of integers, return indices of the two numbers that add up to target.',
+        statement:
+          'Given an array of integers, return indices of the two numbers that add up to target.',
         difficulty: 'easy',
         tags: ['array', 'hashmap'],
         timeLimitMs: 2000,

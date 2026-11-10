@@ -122,13 +122,23 @@ export async function doubleClickGuard(req: Request, res: Response, next: NextFu
   }
 
   // Generate SHA256 signature of submission payload
-  const hash = crypto.createHash('sha256').update(`${problemId}:${code}:${language}`).digest('hex').substring(0, 16);
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${problemId}:${code}:${language}`)
+    .digest('hex')
+    .substring(0, 16);
   const guardKey = REDIS_KEYS.DOUBLE_CLICK_GUARD(userId, hash);
 
   try {
     if (isRedisHealthy()) {
       // SET key 1 EX ttl NX (atomic acquire)
-      const acquired = await redisClient.set(guardKey, '1', 'EX', RATE_LIMITS.DOUBLE_CLICK_GUARD_SECONDS, 'NX');
+      const acquired = await redisClient.set(
+        guardKey,
+        '1',
+        'EX',
+        RATE_LIMITS.DOUBLE_CLICK_GUARD_SECONDS,
+        'NX'
+      );
       if (!acquired) {
         throw new AppError(
           ERROR_CODES.DOUBLE_SUBMIT_GUARD,
@@ -146,7 +156,10 @@ export async function doubleClickGuard(req: Request, res: Response, next: NextFu
           429
         );
       }
-      memoryRateLimits.set(guardKey, { count: 1, expiresAt: now + RATE_LIMITS.DOUBLE_CLICK_GUARD_SECONDS * 1000 });
+      memoryRateLimits.set(guardKey, {
+        count: 1,
+        expiresAt: now + RATE_LIMITS.DOUBLE_CLICK_GUARD_SECONDS * 1000,
+      });
     }
 
     next();
@@ -154,4 +167,3 @@ export async function doubleClickGuard(req: Request, res: Response, next: NextFu
     next(err);
   }
 }
-

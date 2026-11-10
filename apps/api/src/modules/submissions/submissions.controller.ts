@@ -10,7 +10,7 @@ export class SubmissionsController {
       // HTTP 202 Accepted (AC-SJ-01)
       return res.status(202).json({ data: result });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -20,7 +20,7 @@ export class SubmissionsController {
       const result = await submissionsService.runSample(req.user!.id, input);
       return res.status(200).json({ data: result });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -30,7 +30,7 @@ export class SubmissionsController {
       const submission = await submissionsService.getSubmission(id, req.user!.id);
       return res.status(200).json({ data: { submission } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -40,10 +40,9 @@ export class SubmissionsController {
       const result = await submissionsService.listSubmissions(req.user!.id, queryParams);
       return res.status(200).json({ data: result });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 }
 
 export const submissionsController = new SubmissionsController();
-

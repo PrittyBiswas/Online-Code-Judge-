@@ -118,8 +118,22 @@ export interface LeaderboardEntry {
   userId: string;
   username: string;
   problemsSolved: number;
-  totalPenaltyTime: number; // in seconds
+  totalPenaltySeconds: number; // in seconds
   score: number;
+}
+
+export interface HealthStatusResponse {
+  status: 'ok' | 'healthy' | 'degraded';
+  service: string;
+  uptime: number;
+  timestamp: string;
+}
+
+export interface RootApiInfo {
+  name: string;
+  version: string;
+  status: string;
+  healthEndpoint: string;
 }
 
 export interface Contest {
@@ -127,7 +141,7 @@ export interface Contest {
   title: string;
   description: string;
   startTime: string; // ISO UTC
-  endTime: string;   // ISO UTC
+  endTime: string; // ISO UTC
   freezeMinutes: number;
   createdBy: string;
   isOpen?: boolean;
@@ -151,4 +165,3 @@ export interface ApiResponse<T = any> {
     details?: any;
   };
 }
-

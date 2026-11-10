@@ -9,16 +9,16 @@ export class ContestsController {
       const contest = await contestsService.createContest(req.user!.id, input);
       return res.status(201).json({ data: { contest } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
-  async list(req: Request, res: Response, next: NextFunction) {
+  async list(_req: Request, res: Response, next: NextFunction) {
     try {
       const contests = await contestsService.listContests();
       return res.status(200).json({ data: { contests } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -28,7 +28,7 @@ export class ContestsController {
       const contest = await contestsService.getContest(id);
       return res.status(200).json({ data: { contest } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -38,10 +38,9 @@ export class ContestsController {
       const leaderboard = await contestsService.getContestLeaderboard(id, req.user?.role);
       return res.status(200).json({ data: { leaderboard } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 }
 
 export const contestsController = new ContestsController();
-

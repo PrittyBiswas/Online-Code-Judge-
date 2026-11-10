@@ -22,7 +22,7 @@ export class Executor {
     let finalVerdict: Verdict = Verdict.ACCEPTED;
     let failedTestIndex: number | undefined = undefined;
     let maxExecutionTimeMs = 0;
-    let maxMemoryUsedKb = 0;
+    const maxMemoryUsedKb = 0;
 
     for (const tc of testCases) {
       const sandboxResult = await runInSandbox({
@@ -63,4 +63,3 @@ export class Executor {
 }
 
 export const executor = new Executor();
-

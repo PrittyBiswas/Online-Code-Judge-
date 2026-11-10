@@ -7,4 +7,3 @@ const router = Router();
 router.get('/:id', requireAuth, (req, res, next) => usersController.getProfile(req, res, next));
 
 export const usersRouter = router;
-

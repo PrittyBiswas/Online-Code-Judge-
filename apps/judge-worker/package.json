@@ -6,10 +6,11 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
     "test:sandbox": "tsx src/sandbox/demo.ts"
   },
   "dependencies": {
-    "@judge/shared": "*",
+    "@judge/shared": "workspace:*",
     "bullmq": "^5.4.1",
     "dotenv": "^16.4.5",
     "ioredis": "^5.3.2",
@@ -21,4 +22,3 @@
     "typescript": "^5.3.3"
   }
 }
-

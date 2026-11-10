@@ -65,21 +65,29 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
 
   const dockerArgs = [
     'run',
-    '--name', containerName,
+    '--name',
+    containerName,
     '--rm',
-    '--network', 'none',
+    '--network',
+    'none',
     `--memory=${memoryLimitMb}m`,
     `--memory-swap=${memoryLimitMb}m`,
     '--cpus=0.5',
     '--pids-limit=64',
     '--read-only',
-    '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m',
-    '--cap-drop', 'ALL',
-    '--security-opt', 'no-new-privileges',
-    '--user', '1000:1000',
+    '--tmpfs',
+    '/tmp:rw,noexec,nosuid,size=16m',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--user',
+    '1000:1000',
     '-i',
     image,
-    'node', '-e', runnerScript
+    'node',
+    '-e',
+    runnerScript,
   ];
 
   return new Promise<SandboxExecutionResult>((resolve) => {
@@ -89,68 +97,73 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
     let outputExceeded = false;
     let killed = false;
 
-    const child: ChildProcess = execFile('docker', dockerArgs, {
-      timeout: timeLimitMs + 1000, // Safety margin for external watcher
-      maxBuffer: maxOutputBytes * 2,
-    }, (error, out, err) => {
-      const duration = Date.now() - startTime;
-      stdout = (stdout || out || '').slice(0, maxOutputBytes);
-      stderr = (stderr || err || '').slice(0, maxOutputBytes);
+    const child: ChildProcess = execFile(
+      'docker',
+      dockerArgs,
+      {
+        timeout: timeLimitMs + 1000, // Safety margin for external watcher
+        maxBuffer: maxOutputBytes * 2,
+      },
+      (error, out, err) => {
+        const duration = Date.now() - startTime;
+        stdout = (stdout || out || '').slice(0, maxOutputBytes);
+        stderr = (stderr || err || '').slice(0, maxOutputBytes);
 
-      // Clean up container just in case --rm didn't catch it
-      execFile('docker', ['rm', '-f', containerName], () => {});
+        // Clean up container just in case --rm didn't catch it
+        execFile('docker', ['rm', '-f', containerName], () => {});
 
-      if (timedOut) {
-        return resolve({
-          verdict: Verdict.TIME_LIMIT_EXCEEDED,
-          stdout: '',
-          stderr: 'Time Limit Exceeded',
-          executionTimeMs: duration,
-          exitCode: null,
-        });
-      }
-
-      if (outputExceeded) {
-        return resolve({
-          verdict: Verdict.OUTPUT_LIMIT_EXCEEDED,
-          stdout: stdout.slice(0, 1024),
-          stderr: 'Output Limit Exceeded',
-          executionTimeMs: duration,
-          exitCode: null,
-        });
-      }
-
-      if (error) {
-        // Exit code 137 indicates OOM killed (SIGKILL)
-        if (child.exitCode === 137 || error.signal === 'SIGKILL') {
+        if (timedOut) {
           return resolve({
-            verdict: Verdict.MEMORY_LIMIT_EXCEEDED,
-            stdout,
-            stderr: 'Memory Limit Exceeded',
+            verdict: Verdict.TIME_LIMIT_EXCEEDED,
+            stdout: '',
+            stderr: 'Time Limit Exceeded',
             executionTimeMs: duration,
-            exitCode: 137,
+            exitCode: null,
           });
         }
 
-        // Compilation / Syntax Error vs Runtime Error
-        const isSyntaxError = stderr.includes('SyntaxError');
+        if (outputExceeded) {
+          return resolve({
+            verdict: Verdict.OUTPUT_LIMIT_EXCEEDED,
+            stdout: stdout.slice(0, 1024),
+            stderr: 'Output Limit Exceeded',
+            executionTimeMs: duration,
+            exitCode: null,
+          });
+        }
+
+        if (error) {
+          // Exit code 137 indicates OOM killed (SIGKILL)
+          if (child.exitCode === 137 || error.signal === 'SIGKILL') {
+            return resolve({
+              verdict: Verdict.MEMORY_LIMIT_EXCEEDED,
+              stdout,
+              stderr: 'Memory Limit Exceeded',
+              executionTimeMs: duration,
+              exitCode: 137,
+            });
+          }
+
+          // Compilation / Syntax Error vs Runtime Error
+          const isSyntaxError = stderr.includes('SyntaxError');
+          return resolve({
+            verdict: isSyntaxError ? Verdict.COMPILATION_ERROR : Verdict.RUNTIME_ERROR,
+            stdout,
+            stderr: stderr.slice(0, 2048),
+            executionTimeMs: duration,
+            exitCode: child.exitCode ?? 1,
+          });
+        }
+
         return resolve({
-          verdict: isSyntaxError ? Verdict.COMPILATION_ERROR : Verdict.RUNTIME_ERROR,
+          verdict: Verdict.ACCEPTED,
           stdout,
-          stderr: stderr.slice(0, 2048),
+          stderr,
           executionTimeMs: duration,
-          exitCode: child.exitCode ?? 1,
+          exitCode: 0,
         });
       }
-
-      return resolve({
-        verdict: Verdict.ACCEPTED,
-        stdout,
-        stderr,
-        executionTimeMs: duration,
-        exitCode: 0,
-      });
-    });
+    );
 
     // Hard wall-clock timer enforced by host worker
     const timeoutHandle = setTimeout(() => {
@@ -182,4 +195,3 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
     });
   });
 }
-

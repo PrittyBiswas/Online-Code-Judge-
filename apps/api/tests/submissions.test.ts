@@ -57,4 +57,3 @@ describe('Submissions Service (AC-SJ-01, AC-SJ-10, AC-SJ-11, AC-FE-04)', () => {
     expect(res.nextCursor).toBeDefined();
   });
 });
-

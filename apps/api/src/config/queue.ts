@@ -1,6 +1,5 @@
 import { Queue } from 'bullmq';
 import { QUEUES } from '@judge/shared';
-import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
 let judgeQueue: Queue | null = null;
@@ -31,4 +30,3 @@ try {
 }
 
 export { judgeQueue };
-

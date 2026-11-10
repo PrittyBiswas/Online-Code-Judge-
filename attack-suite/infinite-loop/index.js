@@ -4,4 +4,3 @@
 while (true) {
   // Busy-wait forever — must be killed by external timeout
 }
-

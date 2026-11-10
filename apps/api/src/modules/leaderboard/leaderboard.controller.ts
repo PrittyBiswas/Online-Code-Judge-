@@ -8,11 +8,11 @@ export class LeaderboardController {
       const entries = await leaderboardService.getGlobalLeaderboard(limit);
       return res.status(200).json({ data: { leaderboard: entries } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
-  async rebuild(req: Request, res: Response, next: NextFunction) {
+  async rebuild(_req: Request, res: Response, next: NextFunction) {
     try {
       const result = await leaderboardService.rebuildLeaderboard();
       return res.status(200).json({
@@ -22,10 +22,9 @@ export class LeaderboardController {
         },
       });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 }
 
 export const leaderboardController = new LeaderboardController();
-

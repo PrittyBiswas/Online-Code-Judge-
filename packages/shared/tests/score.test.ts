@@ -31,4 +31,3 @@ describe('Leaderboard Score Encoding (Card 6 & AC-LB-04)', () => {
     expect(decoded.totalPenaltySeconds).toBe(penalty);
   });
 });
-

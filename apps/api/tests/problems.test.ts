@@ -26,7 +26,9 @@ describe('Problems Service (AC-PR-01 to AC-PR-05)', () => {
       ],
     });
 
-    const testCases = Array.from(memoryDb.testCases.values()).filter((tc) => tc.problem_id === created.id);
+    const testCases = Array.from(memoryDb.testCases.values()).filter(
+      (tc) => tc.problem_id === created.id
+    );
     expect(testCases).toHaveLength(2);
 
     // Verify database only stores object storage keys (AC-PR-01)
@@ -48,7 +50,9 @@ describe('Problems Service (AC-PR-01 to AC-PR-05)', () => {
       memoryLimitMb: 128,
       sampleInput: '1',
       sampleExpectedOutput: '1',
-      testCases: [{ input: 'SECRET_TOP_CONFIDENTIAL', expectedOutput: 'SECRET_FLAG', isHidden: true }],
+      testCases: [
+        { input: 'SECRET_TOP_CONFIDENTIAL', expectedOutput: 'SECRET_FLAG', isHidden: true },
+      ],
     });
 
     const fetched = await problemsService.getProblem(created.id);
@@ -122,4 +126,3 @@ describe('Problems Service (AC-PR-01 to AC-PR-05)', () => {
     expect(overlap).toHaveLength(0);
   });
 });
-

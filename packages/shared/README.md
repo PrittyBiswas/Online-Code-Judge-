@@ -1,13 +1,28 @@
-# @judge/shared
+# Shared Package (`@judge/shared`)
 
-Core domain contracts, validation schemas, constants, and utilities shared across all services in the Online Code Judge platform.
+Common TypeScript contracts, constants, Zod validation schemas, and pure utilities shared across `apps/api`, `apps/frontend`, `apps/judge-worker`, and `apps/cron`.
 
-## Modules
+## Structure
 
-- **`/types`**: TypeScript domain interfaces (`User`, `Problem`, `TestCase`, `Submission`, `Contest`, `LeaderboardEntry`, `Verdict`, `Role`).
-- **`/schemas`**: Zod validation schemas for API inputs (`registerSchema`, `loginSchema`, `createProblemSchema`, `createSubmissionSchema`, `createContestSchema`).
-- **`/constants`**: System-wide limits (64 KB code/output cap, process & memory bounds), Redis key namespaces, BullMQ queue names, and error codes.
-- **`/utils`**:
-  - `output-comparator.ts`: Production-grade whitespace and blank-line normalizer meeting AC-SJ-09.
-  - `score.ts`: Mathematical score encoder/decoder for Redis Sorted Sets (Card 6) ensuring tie-breaking by penalty time.
+```
+src/
+├── constants/    # APP_INFO, resource limits, Redis keys, queue names, error codes
+├── schemas/      # Shared Zod schemas (auth, problems, submissions, contests)
+├── types/        # Shared enums (Role, Verdict, SubmissionStatus) & DTO interfaces
+├── utils/        # Pure cross-platform helpers (output comparator, score encoder)
+└── index.ts      # Package entry point
+```
 
+## Development Commands
+
+From the repository root (PowerShell):
+
+```powershell
+pnpm build:shared
+pnpm --filter @judge/shared typecheck
+```
+
+## Rules
+
+- Keep only platform-agnostic TypeScript types, Zod schemas, constants, and pure utilities here.
+- Never place backend-only (Express, fs, child_process) or frontend-only (React, DOM) code in this package.

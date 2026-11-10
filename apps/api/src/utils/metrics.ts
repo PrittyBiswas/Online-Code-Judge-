@@ -37,4 +37,3 @@ export const containerStartFailureCounter = new client.Counter({
   help: 'Total count of Docker container startup failures',
   registers: [register],
 });
-

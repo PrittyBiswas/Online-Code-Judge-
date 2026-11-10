@@ -7,7 +7,7 @@ import { AppError } from '../utils/app-error.js';
  * Denies access by default (403) unless caller's role is in the allowed list.
  */
 export function requireRole(...allowedRoles: Role[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       throw new AppError(ERROR_CODES.AUTH_UNAUTHORIZED, 'Authentication required', 401);
     }
@@ -23,4 +23,3 @@ export function requireRole(...allowedRoles: Role[]) {
     next();
   };
 }
-

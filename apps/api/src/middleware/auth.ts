@@ -38,7 +38,7 @@ export function extractUserFromToken(req: Request): AuthUser | null {
   }
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const user = extractUserFromToken(req);
   if (!user) {
     throw new AppError(ERROR_CODES.AUTH_UNAUTHORIZED, 'Authentication required', 401);
@@ -47,8 +47,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export function optionalAuth(req: Request, res: Response, next: NextFunction) {
+export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
   req.user = extractUserFromToken(req) || undefined;
   next();
 }
-

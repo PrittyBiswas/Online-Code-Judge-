@@ -32,8 +32,10 @@ export class AdminService {
       }
     }
 
-    const averageJudgeTimeMs = completedCount > 0 ? Math.round(totalExecutionTime / completedCount) : 0;
-    const failedJobsCount = (verdictCounts[Verdict.INTERNAL_ERROR] || 0) + (verdictCounts[Verdict.RUNTIME_ERROR] || 0);
+    const averageJudgeTimeMs =
+      completedCount > 0 ? Math.round(totalExecutionTime / completedCount) : 0;
+    const failedJobsCount =
+      (verdictCounts[Verdict.INTERNAL_ERROR] || 0) + (verdictCounts[Verdict.RUNTIME_ERROR] || 0);
 
     return {
       queueDepth: queueDepth || queuedCount,
@@ -111,4 +113,3 @@ export class AdminService {
 }
 
 export const adminService = new AdminService();
-

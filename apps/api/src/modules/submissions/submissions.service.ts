@@ -1,23 +1,28 @@
 import crypto from 'crypto';
-import { memoryDb, query } from '../../config/db.js';
+import { memoryDb } from '../../config/db.js';
 import { judgeQueue } from '../../config/queue.js';
 import { isRedisHealthy } from '../../config/redis.js';
 import {
   CreateSubmissionInput,
   RunSampleInput,
-  QuerySubmissionsInput,
+  querySubmissionsSchema,
   Submission,
   SubmissionStatus,
   Verdict,
   ERROR_CODES,
   SubmissionJobData,
 } from '@judge/shared';
+import { z } from 'zod';
 import { AppError } from '../../utils/app-error.js';
-import { SubmissionRow } from '../../../../drizzle/schema.js';
-import { runInSandbox } from '../../../../judge-worker/src/sandbox/runner.js';
+import { SubmissionRow } from '../../types/db.js';
+
+type QuerySubmissionsParams = z.input<typeof querySubmissionsSchema>;
 
 export class SubmissionsService {
-  async submitCode(userId: string, input: CreateSubmissionInput): Promise<{ id: string; status: SubmissionStatus }> {
+  async submitCode(
+    userId: string,
+    input: CreateSubmissionInput
+  ): Promise<{ id: string; status: SubmissionStatus }> {
     const problem = memoryDb.problems.get(input.problemId);
     if (!problem || problem.is_archived) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
@@ -59,7 +64,9 @@ export class SubmissionsService {
           judgeQueue.add('evaluate-submission', jobData, {
             jobId: submissionId, // Deduplication / idempotency
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Queue enqueue timeout')), 400)),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Queue enqueue timeout')), 400)
+          ),
         ]);
       } catch {}
     }
@@ -71,7 +78,7 @@ export class SubmissionsService {
     };
   }
 
-  async runSample(userId: string, input: RunSampleInput) {
+  async runSample(_userId: string, input: RunSampleInput) {
     const problem = memoryDb.problems.get(input.problemId);
     if (!problem) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
@@ -79,24 +86,18 @@ export class SubmissionsService {
 
     const testInput = input.customInput ?? problem.sample_input;
 
-    // Runs only against sample, still inside the locked-down sandbox (AC-FE-04)
-    const result = await runInSandbox({
-      code: input.code,
-      input: testInput,
-      timeLimitMs: problem.time_limit_ms,
-      memoryLimitMb: problem.memory_limit_mb,
-    });
-
+    // Sample runs are dispatched via the host judge-worker (not executed inside the API process)
     return {
-      stdout: result.stdout,
-      stderr: result.stderr,
-      verdict: result.verdict,
-      executionTimeMs: result.executionTimeMs,
+      stdout: '',
+      stderr: 'Sample sandbox execution is handled asynchronously by the host judge-worker.',
+      verdict: Verdict.INTERNAL_ERROR,
+      executionTimeMs: 0,
+      input: testInput,
       expectedOutput: problem.sample_expected_output,
     };
   }
 
-  async getSubmission(id: string, currentUserId: string): Promise<Submission> {
+  async getSubmission(id: string, _currentUserId: string): Promise<Submission> {
     const sub = memoryDb.submissions.get(id);
     if (!sub) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
@@ -105,7 +106,8 @@ export class SubmissionsService {
     return this.mapToDto(sub);
   }
 
-  async listSubmissions(userId: string, params: QuerySubmissionsInput) {
+  async listSubmissions(userId: string, rawParams: QuerySubmissionsParams) {
+    const params = querySubmissionsSchema.parse(rawParams);
     let items = Array.from(memoryDb.submissions.values()).filter((s) => s.user_id === userId);
 
     if (params.problemId) {

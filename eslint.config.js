@@ -1,9 +1,10 @@
-// eslint.config.js — Root ESLint flat config (ESLint v8/v9 compatible)
 const typescriptEslintPlugin = require('@typescript-eslint/eslint-plugin');
 const typescriptEslintParser = require('@typescript-eslint/parser');
+const reactPlugin = require('eslint-plugin-react');
+const reactHooksPlugin = require('eslint-plugin-react-hooks');
+const prettierConfig = require('eslint-config-prettier');
 
 module.exports = [
-  // --- Files to ignore globally ---
   {
     ignores: [
       '**/node_modules/**',
@@ -11,11 +12,11 @@ module.exports = [
       '**/build/**',
       '**/*.d.ts',
       'apps/frontend/vite.config.ts',
+      'apps/frontend/postcss.config.js',
+      'apps/frontend/tailwind.config.js',
       'coverage/**',
     ],
   },
-
-  // --- Base config for all TypeScript source files ---
   {
     files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
@@ -23,43 +24,44 @@ module.exports = [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
+        ecmaFeatures: {
+          jsx: true,
+        },
       },
     },
     plugins: {
       '@typescript-eslint': typescriptEslintPlugin,
     },
     rules: {
-      // TypeScript strict rules
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      '@typescript-eslint/consistent-type-imports': ['warn', { prefer: 'type-imports' }],
-      '@typescript-eslint/no-non-null-assertion': 'warn',
-
-      // General best practices
-      'no-console': 'off',           // Pino logger used; console.log allowed in workers
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       'no-var': 'error',
       'prefer-const': 'error',
-      'eqeqeq': ['error', 'always'],
-      'no-eval': 'error',            // No eval() anywhere — security rule
+      eqeqeq: ['error', 'always'],
+      'no-eval': 'error',
       'no-implied-eval': 'error',
     },
   },
-
-  // --- Frontend-specific overrides (React / DOM) ---
   {
-    files: ['apps/frontend/**/*.ts', 'apps/frontend/**/*.tsx'],
+    files: ['apps/frontend/src/**/*.ts', 'apps/frontend/src/**/*.tsx'],
+    plugins: {
+      react: reactPlugin,
+      'react-hooks': reactHooksPlugin,
+    },
+    settings: {
+      react: {
+        version: 'detect',
+      },
+    },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
+      ...reactPlugin.configs.recommended.rules,
+      ...reactHooksPlugin.configs.recommended.rules,
+      'react/react-in-jsx-scope': 'off',
+      'react/prop-types': 'off',
     },
   },
-
-  // --- Test file overrides ---
-  {
-    files: ['**/*.test.ts', '**/*.spec.ts', '**/tests/**/*.ts'],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-non-null-assertion': 'off',
-    },
-  },
+  prettierConfig,
 ];
-

@@ -9,4 +9,3 @@ while (true) {
   // This loop never terminates by itself — the host worker kills it
   // when accumulated stdout exceeds MAX_OUTPUT_BYTES (65536)
 }
-

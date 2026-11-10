@@ -19,7 +19,10 @@ export class WorkerLifecycle {
    * Kills and removes running sandbox containers and exits cleanly.
    */
   public async handleShutdown(signal: string) {
-    logger.info({ signal, activeCount: this.activeContainers.size }, 'Shutting down worker process...');
+    logger.info(
+      { signal, activeCount: this.activeContainers.size },
+      'Shutting down worker process...'
+    );
 
     for (const container of this.activeContainers) {
       try {
@@ -35,4 +38,3 @@ export class WorkerLifecycle {
 }
 
 export const workerLifecycle = new WorkerLifecycle();
-

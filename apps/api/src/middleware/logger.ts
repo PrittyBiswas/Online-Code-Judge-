@@ -7,15 +7,17 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
 
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logger.info({
-      method: req.method,
-      url: req.originalUrl,
-      status: res.statusCode,
-      durationMs: duration,
-      submissionId,
-    }, 'HTTP Request processed');
+    logger.info(
+      {
+        method: req.method,
+        url: req.originalUrl,
+        status: res.statusCode,
+        durationMs: duration,
+        submissionId,
+      },
+      'HTTP Request processed'
+    );
   });
 
   next();
 }
-

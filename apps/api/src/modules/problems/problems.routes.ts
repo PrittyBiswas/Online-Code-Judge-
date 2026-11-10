@@ -10,19 +10,12 @@ router.get('/', optionalAuth, (req, res, next) => problemsController.list(req, r
 router.get('/:id', optionalAuth, (req, res, next) => problemsController.getOne(req, res, next));
 
 // Setter & Admin protected endpoints
-router.post(
-  '/',
-  requireAuth,
-  requireRole(Role.PROBLEM_SETTER, Role.ADMIN),
-  (req, res, next) => problemsController.create(req, res, next)
+router.post('/', requireAuth, requireRole(Role.PROBLEM_SETTER, Role.ADMIN), (req, res, next) =>
+  problemsController.create(req, res, next)
 );
 
-router.put(
-  '/:id',
-  requireAuth,
-  requireRole(Role.PROBLEM_SETTER, Role.ADMIN),
-  (req, res, next) => problemsController.update(req, res, next)
+router.put('/:id', requireAuth, requireRole(Role.PROBLEM_SETTER, Role.ADMIN), (req, res, next) =>
+  problemsController.update(req, res, next)
 );
 
 export const problemsRouter = router;
-

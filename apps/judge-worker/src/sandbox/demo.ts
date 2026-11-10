@@ -65,11 +65,11 @@ async function runAttackSuite(): Promise<void> {
   for (const scenario of scenarios) {
     let code: string;
     try {
-      code = scenario.codePath
-        ? readFileSync(scenario.codePath, 'utf-8')
-        : happyPathCode;
+      code = scenario.codePath ? readFileSync(scenario.codePath, 'utf-8') : happyPathCode;
     } catch {
-      console.log(`⚠️  Skipping "${scenario.name}" — attack file not found at ${scenario.codePath}`);
+      console.log(
+        `⚠️  Skipping "${scenario.name}" — attack file not found at ${scenario.codePath}`
+      );
       console.log('   (Run from monorepo root or ensure attack-suite/ exists)\n');
       continue;
     }

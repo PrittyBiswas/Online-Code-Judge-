@@ -7,18 +7,15 @@ import { logger } from '../utils/logger.js';
 /**
  * Standardized Global Error Handler (Part 4.2: One error shape: { code, message })
  */
-export function errorHandler(
-  err: any,
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
   logger.error({ err, path: req.path, method: req.method }, 'Request error caught');
 
   // Handle Zod Schema Validation Errors
   if (err instanceof ZodError) {
     const firstIssue = err.issues[0];
-    const message = firstIssue ? `${firstIssue.path.join('.')}: ${firstIssue.message}` : 'Validation error';
+    const message = firstIssue
+      ? `${firstIssue.path.join('.')}: ${firstIssue.message}`
+      : 'Validation error';
     return res.status(400).json({
       code: ERROR_CODES.VALIDATION_ERROR,
       message,
@@ -39,4 +36,3 @@ export function errorHandler(
     message: 'An unexpected internal error occurred.',
   });
 }
-

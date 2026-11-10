@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { authService } from '../src/modules/auth/auth.service.js';
 import { memoryDb } from '../src/config/db.js';
-import { Role, ERROR_CODES } from '@judge/shared';
+import { ERROR_CODES } from '@judge/shared';
 import { AppError } from '../src/utils/app-error.js';
 import { clearLoginFailures } from '../src/middleware/rate-limiter.js';
 
@@ -93,8 +93,9 @@ describe('Auth Service & RBAC (AC-ID-01 to AC-ID-04)', () => {
     } catch (err: any) {
       expect(err).toBeInstanceOf(AppError);
       // Either AUTH_LOCKED_OUT or invalid credentials (if redis offline in unit test)
-      expect([ERROR_CODES.AUTH_LOCKED_OUT, ERROR_CODES.AUTH_INVALID_CREDENTIALS]).toContain(err.code);
+      expect([ERROR_CODES.AUTH_LOCKED_OUT, ERROR_CODES.AUTH_INVALID_CREDENTIALS]).toContain(
+        err.code
+      );
     }
   });
 });
-

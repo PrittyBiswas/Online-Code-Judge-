@@ -1,6 +1,4 @@
-import { env } from './env.js';
-import { logger } from '../utils/logger.js';
-import { UserRow, ProblemRow, TestCaseRow, SubmissionRow, ContestRow } from '../../../drizzle/schema.js';
+import { UserRow, ProblemRow, TestCaseRow, SubmissionRow, ContestRow } from '../types/db.js';
 
 interface QueryResult<T = any> {
   rows: T[];
@@ -44,10 +42,14 @@ function executeMockSql<T>(sql: string, params: any[]): QueryResult<T> {
     return { rows: [user as any], rowCount: 1 };
   }
 
-  if (normalized.startsWith('select * from users where username =') || normalized.includes('from users where')) {
+  if (
+    normalized.startsWith('select * from users where username =') ||
+    normalized.includes('from users where')
+  ) {
     const target = params[0]?.toLowerCase();
     const found = Array.from(memoryDb.users.values()).find(
-      (u) => u.username.toLowerCase() === target || u.email.toLowerCase() === target || u.id === target
+      (u) =>
+        u.username.toLowerCase() === target || u.email.toLowerCase() === target || u.id === target
     );
     return { rows: found ? [found as any] : [], rowCount: found ? 1 : 0 };
   }
@@ -105,4 +107,3 @@ export async function isDatabaseHealthy(): Promise<boolean> {
   // Returns true if DB is accessible
   return true;
 }
-

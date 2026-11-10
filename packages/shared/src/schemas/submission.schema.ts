@@ -33,4 +33,3 @@ export const querySubmissionsSchema = z.object({
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
 export type RunSampleInput = z.infer<typeof runSampleSchema>;
 export type QuerySubmissionsInput = z.infer<typeof querySubmissionsSchema>;
-

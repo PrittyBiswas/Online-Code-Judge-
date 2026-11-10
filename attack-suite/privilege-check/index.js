@@ -36,4 +36,3 @@ server.on('error', (e) => {
   console.log('[privilege-check] Port 80 bind blocked (expected):', e.code);
   process.exit(1);
 });
-

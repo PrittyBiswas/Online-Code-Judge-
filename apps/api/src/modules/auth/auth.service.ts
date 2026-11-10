@@ -3,15 +3,25 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { env } from '../../config/env.js';
 import { query, memoryDb } from '../../config/db.js';
-import { RegisterInput, LoginInput, Role, ERROR_CODES } from '@judge/shared';
+import { registerSchema, LoginInput, Role, ERROR_CODES } from '@judge/shared';
+import { z } from 'zod';
 import { AppError } from '../../utils/app-error.js';
-import { checkLoginLockout, recordLoginFailure, clearLoginFailures } from '../../middleware/rate-limiter.js';
+import {
+  checkLoginLockout,
+  recordLoginFailure,
+  clearLoginFailures,
+} from '../../middleware/rate-limiter.js';
 import { AuthUser } from '../../middleware/auth.js';
 
+type RegisterParams = z.input<typeof registerSchema>;
+
 export class AuthService {
-  async register(input: RegisterInput): Promise<{ user: AuthUser; token: string }> {
+  async register(rawInput: RegisterParams): Promise<{ user: AuthUser; token: string }> {
+    const input = registerSchema.parse(rawInput);
     const existingUser = Array.from(memoryDb.users.values()).find(
-      (u) => u.username.toLowerCase() === input.username.toLowerCase() || u.email.toLowerCase() === input.email.toLowerCase()
+      (u) =>
+        u.username.toLowerCase() === input.username.toLowerCase() ||
+        u.email.toLowerCase() === input.email.toLowerCase()
     );
 
     if (existingUser) {
@@ -54,7 +64,9 @@ export class AuthService {
 
     // Lookup user by username or email
     const user = Array.from(memoryDb.users.values()).find(
-      (u) => u.username.toLowerCase() === identifier.toLowerCase() || u.email.toLowerCase() === identifier.toLowerCase()
+      (u) =>
+        u.username.toLowerCase() === identifier.toLowerCase() ||
+        u.email.toLowerCase() === identifier.toLowerCase()
     );
 
     if (!user) {

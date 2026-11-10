@@ -32,4 +32,3 @@ try {
 }
 
 process.exit(1); // Exit non-zero to register as RUNTIME_ERROR verdict
-

@@ -8,10 +8,9 @@ import {
   ERROR_CODES,
   Verdict,
   encodeLeaderboardScore,
-  decodeLeaderboardScore,
 } from '@judge/shared';
 import { AppError } from '../../utils/app-error.js';
-import { ContestRow } from '../../../../drizzle/schema.js';
+import { ContestRow } from '../../types/db.js';
 
 export class ContestsService {
   async createContest(creatorId: string, input: CreateContestInput): Promise<Contest> {
@@ -56,7 +55,9 @@ export class ContestsService {
     }
 
     const now = new Date();
-    const freezeStartTime = new Date(contest.end_time.getTime() - contest.freeze_minutes * 60 * 1000);
+    const freezeStartTime = new Date(
+      contest.end_time.getTime() - contest.freeze_minutes * 60 * 1000
+    );
     const isFrozenForPublic = now >= freezeStartTime && callerRole !== Role.ADMIN;
 
     // Filter submissions within contest time bounds
@@ -80,7 +81,9 @@ export class ContestsService {
         const stat = userStats.get(sub.user_id)!;
         if (!stat.solved.has(sub.problem_id)) {
           stat.solved.add(sub.problem_id);
-          const penaltyMinutes = Math.floor((sub.created_at.getTime() - contest.start_time.getTime()) / 60000);
+          const penaltyMinutes = Math.floor(
+            (sub.created_at.getTime() - contest.start_time.getTime()) / 60000
+          );
           stat.penalty += penaltyMinutes;
         }
       }

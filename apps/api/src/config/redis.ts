@@ -55,4 +55,3 @@ if (env.NODE_ENV !== 'test') {
   redisClient.connect().catch(() => {});
   redisSubscriber.connect().catch(() => {});
 }
-

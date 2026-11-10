@@ -1,6 +1,6 @@
 /**
  * Output Normalization & Comparison Rule (AC-SJ-09 / Part 1 M3):
- * 
+ *
  * 1. Handles string inputs, normalizing CRLF (\r\n) and CR (\r) into standard LF (\n).
  * 2. Trims trailing whitespace from every individual line.
  * 3. Strips trailing empty or whitespace-only lines from the end of the output.
@@ -9,7 +9,7 @@
  */
 
 export function normalizeOutput(output: string | null | undefined): string {
-  if (output == null) {
+  if (output === null || output === undefined) {
     return '';
   }
 
@@ -39,4 +39,3 @@ export function compareOutputs(
 ): boolean {
   return normalizeOutput(actual) === normalizeOutput(expected);
 }
-

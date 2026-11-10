@@ -8,10 +8,9 @@ export class UsersController {
       const user = await usersService.getProfile(id);
       return res.status(200).json({ data: { user } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 }
 
 export const usersController = new UsersController();
-

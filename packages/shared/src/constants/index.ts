@@ -1,6 +1,11 @@
+export const APP_INFO = {
+  NAME: 'Online Code Judge',
+  VERSION: '1.0.0',
+} as const;
+
 export const LIMITS = {
   MAX_CODE_SIZE_BYTES: 64 * 1024, // 64 KB
-  MAX_OUTPUT_BYTES: 64 * 1024,    // 64 KB
+  MAX_OUTPUT_BYTES: 64 * 1024, // 64 KB
   DEFAULT_TIME_LIMIT_MS: 2000,
   MAX_TIME_LIMIT_MS: 10000,
   DEFAULT_MEMORY_LIMIT_MB: 128,
@@ -20,7 +25,7 @@ export const SECURITY = {
 export const RATE_LIMITS = {
   LOGIN_MAX_FAILURES: 5,
   LOGIN_LOCKOUT_SECONDS: 900, // 15 minutes lockout window
-  LOGIN_WINDOW_SECONDS: 300,  // 5 minutes failure window
+  LOGIN_WINDOW_SECONDS: 300, // 5 minutes failure window
   SUBMISSIONS_PER_MINUTE: 5,
   DOUBLE_CLICK_GUARD_SECONDS: 3,
 };
@@ -58,5 +63,4 @@ export const ERROR_CODES = {
   CODE_SIZE_EXCEEDED: 'CODE_SIZE_EXCEEDED',
 } as const;
 
-export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
-
+export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

@@ -33,4 +33,3 @@ seed().catch((err) => {
   console.error('[seed] ❌ Seed failed:', err);
   process.exit(1);
 });
-

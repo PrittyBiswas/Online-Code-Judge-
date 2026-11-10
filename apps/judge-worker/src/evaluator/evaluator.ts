@@ -52,4 +52,3 @@ export class Evaluator {
 }
 
 export const evaluator = new Evaluator();
-

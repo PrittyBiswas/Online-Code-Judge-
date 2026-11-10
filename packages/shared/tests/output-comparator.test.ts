@@ -47,4 +47,3 @@ describe('Output Comparator (AC-SJ-09 / Part 1 M3)', () => {
     expect(compareOutputs(outputWithNull, cleanOutput)).toBe(true);
   });
 });
-

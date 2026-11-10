@@ -10,4 +10,3 @@ router.post('/logout', (req, res) => authController.logout(req, res));
 router.get('/me', optionalAuth, (req, res) => authController.me(req, res));
 
 export const authRouter = router;
-

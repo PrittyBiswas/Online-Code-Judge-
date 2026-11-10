@@ -83,4 +83,3 @@ export interface ContestParticipantRow {
   user_id: string;
   registered_at: Date;
 }
-

@@ -11,6 +11,7 @@ import { isRedisHealthy } from './config/redis.js';
 import { minioService } from './config/minio.js';
 import { register } from './utils/metrics.js';
 import { execFile } from 'child_process';
+import { APP_INFO, HealthStatusResponse, RootApiInfo } from '@judge/shared';
 
 const app = express();
 
@@ -25,13 +26,30 @@ app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
 app.use(requestLogger);
 
+// Root endpoint
+app.get('/', (_req, res) => {
+  const payload: RootApiInfo = {
+    name: `${APP_INFO.NAME} API`,
+    version: APP_INFO.VERSION,
+    status: 'running',
+    healthEndpoint: '/health/live',
+  };
+  res.status(200).json(payload);
+});
+
 // Liveness probe (AC-OP-04)
-app.get('/health/live', (req, res) => {
-  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+app.get('/health/live', (_req, res) => {
+  const payload: HealthStatusResponse = {
+    status: 'ok',
+    service: '@judge/api',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  };
+  res.status(200).json(payload);
 });
 
 // Extensive healthcheck (AC-OP-04: verifies Postgres, Redis, MinIO, Docker)
-app.get('/health/extensive', async (req, res) => {
+app.get('/health/extensive', async (_req, res) => {
   const dbOk = await isDatabaseHealthy();
   const redisOk = isRedisHealthy();
   const minioOk = await minioService.isHealthy();
@@ -66,7 +84,7 @@ app.get('/health/extensive', async (req, res) => {
 });
 
 // Metrics endpoint (AC-OP-02)
-app.get('/metrics', async (req, res) => {
+app.get('/metrics', async (_req, res) => {
   try {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
@@ -82,4 +100,3 @@ app.use('/api', apiRouter);
 app.use(errorHandler);
 
 export { app };
-

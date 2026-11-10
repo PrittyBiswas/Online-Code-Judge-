@@ -41,7 +41,10 @@ export class LeaderboardService {
     }
 
     const { problemsSolved, totalPenaltySeconds } = decodeLeaderboardScore(currentScore);
-    const newScore = encodeLeaderboardScore(problemsSolved + 1, totalPenaltySeconds + penaltySeconds);
+    const newScore = encodeLeaderboardScore(
+      problemsSolved + 1,
+      totalPenaltySeconds + penaltySeconds
+    );
 
     if (isRedisHealthy()) {
       try {
@@ -60,7 +63,12 @@ export class LeaderboardService {
 
     try {
       // ZREVRANGE with scores: returns [userId1, score1, userId2, score2, ...]
-      const raw = await redisClient.zrevrange(REDIS_KEYS.GLOBAL_LEADERBOARD, 0, limit - 1, 'WITHSCORES');
+      const raw = await redisClient.zrevrange(
+        REDIS_KEYS.GLOBAL_LEADERBOARD,
+        0,
+        limit - 1,
+        'WITHSCORES'
+      );
       const entries: LeaderboardEntry[] = [];
 
       for (let i = 0; i < raw.length; i += 2) {
@@ -92,7 +100,7 @@ export class LeaderboardService {
   async rebuildLeaderboard(): Promise<{ count: number; rebuiltEntries: LeaderboardEntry[] }> {
     // 1. Scan all submissions for ACCEPTED verdicts
     const solvedMap = new Map<string, Set<string>>(); // userId -> Set<problemId>
-    const penaltyMap = new Map<string, number>();     // userId -> totalPenaltySeconds
+    const penaltyMap = new Map<string, number>(); // userId -> totalPenaltySeconds
 
     for (const sub of memoryDb.submissions.values()) {
       if (sub.verdict === Verdict.ACCEPTED) {
@@ -191,4 +199,3 @@ export class LeaderboardService {
 }
 
 export const leaderboardService = new LeaderboardService();
-

@@ -6,4 +6,3 @@ while (true) {
   // Allocate 10 MB chunks continuously until OOM kill
   chunks.push(Buffer.alloc(10 * 1024 * 1024, 0xff));
 }
-

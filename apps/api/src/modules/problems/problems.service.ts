@@ -1,26 +1,34 @@
 import crypto from 'crypto';
-import { memoryDb, query } from '../../config/db.js';
+import { memoryDb } from '../../config/db.js';
 import { minioService } from '../../config/minio.js';
 import { redisClient, isRedisHealthy } from '../../config/redis.js';
 import {
-  CreateProblemInput,
   UpdateProblemInput,
-  QueryProblemsInput,
   Problem,
   ProblemDifficulty,
   REDIS_KEYS,
   ERROR_CODES,
+  createProblemSchema,
+  queryProblemsSchema,
 } from '@judge/shared';
+import { z } from 'zod';
 import { AppError } from '../../utils/app-error.js';
-import { ProblemRow, TestCaseRow } from '../../../../drizzle/schema.js';
+import { ProblemRow, TestCaseRow } from '../../types/db.js';
+
+type CreateProblemParams = z.input<typeof createProblemSchema>;
+type QueryProblemsParams = z.input<typeof queryProblemsSchema>;
 
 export class ProblemsService {
-  async createProblem(setterId: string, input: CreateProblemInput): Promise<Problem> {
+  async createProblem(setterId: string, rawInput: CreateProblemParams): Promise<Problem> {
+    const input = createProblemSchema.parse(rawInput);
     const id = crypto.randomUUID();
-    const slug = input.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') + '-' + id.substring(0, 6);
+    const slug =
+      input.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') +
+      '-' +
+      id.substring(0, 6);
 
     const problemRow: ProblemRow = {
       id,
@@ -116,7 +124,8 @@ export class ProblemsService {
     if (input.timeLimitMs) problem.time_limit_ms = input.timeLimitMs;
     if (input.memoryLimitMb) problem.memory_limit_mb = input.memoryLimitMb;
     if (input.sampleInput !== undefined) problem.sample_input = input.sampleInput;
-    if (input.sampleExpectedOutput !== undefined) problem.sample_expected_output = input.sampleExpectedOutput;
+    if (input.sampleExpectedOutput !== undefined)
+      problem.sample_expected_output = input.sampleExpectedOutput;
     problem.updated_at = new Date();
 
     // Invalidate Redis cache (AC-PR-05 / Card 8)
@@ -133,7 +142,10 @@ export class ProblemsService {
   /**
    * Search and filter problems with cursor pagination (AC-PR-03, AC-PR-04)
    */
-  async listProblems(params: QueryProblemsInput): Promise<{ items: Problem[]; nextCursor: string | null }> {
+  async listProblems(
+    rawParams: QueryProblemsParams
+  ): Promise<{ items: Problem[]; nextCursor: string | null }> {
+    const params = queryProblemsSchema.parse(rawParams);
     let items = Array.from(memoryDb.problems.values()).filter((p) => !p.is_archived);
 
     // Filter by difficulty (AND condition)

@@ -20,4 +20,3 @@ apiRouter.use('/contests', contestsRouter);
 apiRouter.use('/admin', adminRouter);
 
 export { apiRouter };
-

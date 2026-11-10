@@ -6,12 +6,18 @@
 
 const PENALTY_OFFSET = 10_000_000; // Max penalty capacity (approx 115 days)
 
-export function encodeLeaderboardScore(problemsSolved: number, totalPenaltySeconds: number): number {
+export function encodeLeaderboardScore(
+  problemsSolved: number,
+  totalPenaltySeconds: number
+): number {
   const boundedPenalty = Math.min(Math.max(0, totalPenaltySeconds), PENALTY_OFFSET - 1);
   return problemsSolved * PENALTY_OFFSET + (PENALTY_OFFSET - boundedPenalty);
 }
 
-export function decodeLeaderboardScore(score: number): { problemsSolved: number; totalPenaltySeconds: number } {
+export function decodeLeaderboardScore(score: number): {
+  problemsSolved: number;
+  totalPenaltySeconds: number;
+} {
   const problemsSolved = Math.floor(score / PENALTY_OFFSET);
   const remainder = score % PENALTY_OFFSET;
   const totalPenaltySeconds = PENALTY_OFFSET - remainder;
@@ -41,4 +47,3 @@ export function formatIST(dateInput: Date | string | number): string {
 export function toUTC(dateInput: Date | string | number): string {
   return new Date(dateInput).toISOString();
 }
-

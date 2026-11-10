@@ -2,12 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import { adminService } from './admin.service.js';
 
 export class AdminController {
-  async getStats(req: Request, res: Response, next: NextFunction) {
+  async getStats(_req: Request, res: Response, next: NextFunction) {
     try {
       const stats = await adminService.getSystemStats();
       return res.status(200).json({ data: { stats } });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -17,7 +17,7 @@ export class AdminController {
       const result = await adminService.rejudgeSubmission(id);
       return res.status(200).json({ data: result });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 
@@ -27,10 +27,9 @@ export class AdminController {
       const result = await adminService.killSubmission(id);
       return res.status(200).json({ data: result });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 }
 
 export const adminController = new AdminController();
-

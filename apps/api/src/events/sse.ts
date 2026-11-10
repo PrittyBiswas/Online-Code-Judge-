@@ -141,4 +141,3 @@ sseRouter.get('/:id/live', (req: Request, res: Response) => {
     sseManager.remove(client); // AC-LV-04: No leaked connections
   });
 });
-

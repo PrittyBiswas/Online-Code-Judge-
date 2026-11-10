@@ -112,4 +112,3 @@ console.log('[dev] Starting all services...\n');
 for (const service of services) {
   startService(service);
 }
-

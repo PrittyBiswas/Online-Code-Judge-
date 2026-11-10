@@ -24,4 +24,3 @@ app.post('/mail/set-failure-rate', (req, res) => {
 app.listen(PORT, () => {
   console.log(`[Stub-Mail] Service listening on port ${PORT}`);
 });
-

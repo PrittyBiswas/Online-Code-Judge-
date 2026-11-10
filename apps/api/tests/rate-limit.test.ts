@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { submissionRateLimiter, doubleClickGuard, checkLoginLockout } from '../src/middleware/rate-limiter.js';
+import { describe, it, expect } from 'vitest';
+import {
+  submissionRateLimiter,
+  doubleClickGuard,
+  checkLoginLockout,
+} from '../src/middleware/rate-limiter.js';
 import { AppError } from '../src/utils/app-error.js';
 import { ERROR_CODES } from '@judge/shared';
 
@@ -13,7 +17,7 @@ describe('Rate Limiter Middleware (AC-ID-04, AC-SJ-10, AC-SJ-11)', () => {
   it('AC-SJ-10: enforces rate limit of 5 submissions per minute per user', async () => {
     const userId = 'user-rate-test-1';
     const mockRes: any = {
-      setHeader: (key: string, val: any) => {},
+      setHeader: (_key: string, _val: any) => {},
     };
 
     // First 5 submissions pass
@@ -67,4 +71,3 @@ describe('Rate Limiter Middleware (AC-ID-04, AC-SJ-10, AC-SJ-11)', () => {
     expect(secondError.code).toBe(ERROR_CODES.DOUBLE_SUBMIT_GUARD);
   });
 });
-

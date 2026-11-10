@@ -5,4 +5,3 @@ export * from '../modules/submissions/submissions.service.js';
 export * from '../modules/leaderboard/leaderboard.service.js';
 export * from '../modules/contests/contests.service.js';
 export * from '../modules/admin/admin.service.js';
-
