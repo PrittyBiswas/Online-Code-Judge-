@@ -136,25 +136,25 @@ pnpm lint
 pnpm format:check
 pnpm typecheck
 pnpm build
-pnpm test
+pnpm test              # Offline unit tests
+pnpm test:integration  # Live PostgreSQL CRUD integration tests (requires running Docker Postgres)
 ```
 
 ---
 
 ## Implementation Status
 
-### Day 2, Day 3 & Day 4 Completed
+### Day 2, Day 3, Day 4 & Day 5 Completed
 
 - pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking, strict `tsconfig.base.json`, ESLint, Prettier, `.editorconfig`, and `.gitignore`.
-- Express API (`GET /`, `GET /health/live`), React + Vite frontend (`apps/frontend`), and shared `@judge/shared` package.
+- Express API (`GET /`, `GET /health/live`, `/health/extensive`), React + Vite frontend (`apps/frontend`), and shared `@judge/shared` package.
 - Local Docker Compose infrastructure (`postgres`, `redis`, `minio`, idempotent `create-buckets`) with `127.0.0.1`-only port bindings, named volumes, health checks, `REDIS_URL` queue wiring, and `pnpm infra:verify`.
-- Drizzle ORM + `pg` PostgreSQL integration (`apps/api/src/db/`), initial core schema (`users`, `problems`, `test_cases`, `submissions`), Drizzle Kit migration generation/execution (`drizzle/migrations/`), and live DB verification (`pnpm db:verify`).
+- Drizzle ORM + `pg` PostgreSQL integration (`apps/api/src/db/`), initial core schema (`users`, `problems`, `test_cases`, `submissions`), Drizzle Kit migrations (`drizzle/migrations/`), and live CRUD integration across `authService`, `usersService`, `problemsService`, `submissionsService`, `adminService`, `leaderboardService`, and SSE catch-up (`pnpm test:integration`, `pnpm db:verify`).
 - Host-run `apps/judge-worker` kept strictly separate from Docker Compose (no mounted Docker socket).
 
-### Intentionally Postponed (Day 5+)
+### Intentionally Postponed (Day 6+)
 
-- Wiring feature API routes (`auth`, `problems`, `submissions`, `leaderboard`, `contests`) to live PostgreSQL/MinIO/BullMQ persistence.
-- Judge sandbox execution, SSE streaming, leaderboards, and contests.
+- Judge worker Docker sandbox execution pipeline (`apps/judge-worker`), live MinIO test-case evaluation, contest database tables, and end-to-end UI coding submission workflow.
 
 ---
 

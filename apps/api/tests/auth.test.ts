@@ -1,9 +1,61 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { authService } from '../src/modules/auth/auth.service.js';
-import { memoryDb } from '../src/config/db.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import crypto from 'crypto';
 import { ERROR_CODES } from '@judge/shared';
+import { memoryDb } from '../src/config/db.js';
 import { AppError } from '../src/utils/app-error.js';
 import { clearLoginFailures } from '../src/middleware/rate-limiter.js';
+
+vi.mock('../src/db/index.js', () => {
+  return {
+    db: {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => {
+              // Replaced dynamically per login/register flow via spyOn when needed;
+              // default returns all stored users so service filters or fallback works.
+              return Array.from(memoryDb.users.values()).map((u) => ({
+                id: u.id,
+                username: u.username,
+                email: u.email,
+                passwordHash: u.password_hash,
+                role: u.role,
+              }));
+            },
+          }),
+        }),
+      }),
+      insert: () => ({
+        values: (vals: {
+          username: string;
+          email: string;
+          passwordHash: string;
+          role: string;
+        }) => ({
+          returning: async () => {
+            const id = crypto.randomUUID();
+            const now = new Date();
+            memoryDb.users.set(id, {
+              id,
+              username: vals.username,
+              email: vals.email,
+              password_hash: vals.passwordHash,
+              role: vals.role,
+              created_at: now,
+              updated_at: now,
+            });
+            return [{ id, username: vals.username, email: vals.email, role: vals.role }];
+          },
+        }),
+      }),
+    },
+    pool: { query: vi.fn(), end: vi.fn() },
+    checkDatabaseConnection: vi.fn().mockResolvedValue(true),
+    closeDatabase: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+import { authService } from '../src/modules/auth/auth.service.js';
 
 describe('Auth Service & RBAC (AC-ID-01 to AC-ID-04)', () => {
   beforeEach(async () => {
@@ -20,13 +72,12 @@ describe('Auth Service & RBAC (AC-ID-01 to AC-ID-04)', () => {
     });
 
     expect(user.username).toBe('testuser');
+    expect((user as any).passwordHash).toBeUndefined();
     expect(token).toBeDefined();
 
     const storedUser = Array.from(memoryDb.users.values()).find((u) => u.username === 'testuser');
     expect(storedUser).toBeDefined();
-    // Raw password is never stored
     expect(storedUser!.password_hash).not.toBe('mypassword123');
-    // Starts with bcrypt prefix $2a$ or $2b$
     expect(storedUser!.password_hash.startsWith('$2')).toBe(true);
   });
 
@@ -60,6 +111,8 @@ describe('Auth Service & RBAC (AC-ID-01 to AC-ID-04)', () => {
       errorExistingUser = e;
     }
 
+    memoryDb.users.clear();
+
     let errorNonExistentUser: any;
     try {
       await authService.login({ usernameOrEmail: 'nonexistent', password: 'wrongpassword' });
@@ -80,19 +133,16 @@ describe('Auth Service & RBAC (AC-ID-01 to AC-ID-04)', () => {
       password: 'password123',
     });
 
-    // 5 failed attempts
     for (let i = 0; i < 5; i++) {
       try {
         await authService.login({ usernameOrEmail: 'alice', password: 'bad' });
       } catch {}
     }
 
-    // 6th attempt should trigger lockout
     try {
       await authService.login({ usernameOrEmail: 'alice', password: 'bad' });
     } catch (err: any) {
       expect(err).toBeInstanceOf(AppError);
-      // Either AUTH_LOCKED_OUT or invalid credentials (if redis offline in unit test)
       expect([ERROR_CODES.AUTH_LOCKED_OUT, ERROR_CODES.AUTH_INVALID_CREDENTIALS]).toContain(
         err.code
       );

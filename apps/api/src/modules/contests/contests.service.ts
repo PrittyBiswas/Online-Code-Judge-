@@ -1,5 +1,8 @@
 import crypto from 'crypto';
+import { and, gte, inArray, lte } from 'drizzle-orm';
 import { memoryDb } from '../../config/db.js';
+import { db } from '../../db/index.js';
+import { submissions as submissionsTable, users as usersTable } from '../../db/schema.js';
 import {
   CreateContestInput,
   Contest,
@@ -10,6 +13,7 @@ import {
   encodeLeaderboardScore,
 } from '@judge/shared';
 import { AppError } from '../../utils/app-error.js';
+import { mapDatabaseError } from '../../utils/db-error.js';
 import { ContestRow } from '../../types/db.js';
 
 export class ContestsService {
@@ -60,43 +64,72 @@ export class ContestsService {
     );
     const isFrozenForPublic = now >= freezeStartTime && callerRole !== Role.ADMIN;
 
-    // Filter submissions within contest time bounds
-    const submissions = Array.from(memoryDb.submissions.values()).filter((s) => {
-      const subTime = s.created_at;
-      const inTime = subTime >= contest.start_time && subTime <= contest.end_time;
-      if (!inTime) return false;
-      // If frozen for public, ignore submissions submitted during freeze window (AC-CT-02)
-      if (isFrozenForPublic && subTime >= freezeStartTime) {
-        return false;
-      }
-      return true;
-    });
+    // Filter submissions within contest time bounds from PostgreSQL
+    let windowSubmissions: Array<{
+      userId: string;
+      problemId: string;
+      verdict: string | null;
+      createdAt: Date;
+    }> = [];
+
+    try {
+      const endBound = isFrozenForPublic ? freezeStartTime : contest.end_time;
+      windowSubmissions = await db
+        .select({
+          userId: submissionsTable.userId,
+          problemId: submissionsTable.problemId,
+          verdict: submissionsTable.verdict,
+          createdAt: submissionsTable.createdAt,
+        })
+        .from(submissionsTable)
+        .where(
+          and(
+            gte(submissionsTable.createdAt, contest.start_time),
+            lte(submissionsTable.createdAt, endBound)
+          )
+        );
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
 
     const userStats = new Map<string, { solved: Set<string>; penalty: number }>();
-    for (const sub of submissions) {
+    for (const sub of windowSubmissions) {
       if (sub.verdict === Verdict.ACCEPTED) {
-        if (!userStats.has(sub.user_id)) {
-          userStats.set(sub.user_id, { solved: new Set(), penalty: 0 });
+        if (!userStats.has(sub.userId)) {
+          userStats.set(sub.userId, { solved: new Set(), penalty: 0 });
         }
-        const stat = userStats.get(sub.user_id)!;
-        if (!stat.solved.has(sub.problem_id)) {
-          stat.solved.add(sub.problem_id);
+        const stat = userStats.get(sub.userId)!;
+        if (!stat.solved.has(sub.problemId)) {
+          stat.solved.add(sub.problemId);
           const penaltyMinutes = Math.floor(
-            (sub.created_at.getTime() - contest.start_time.getTime()) / 60000
+            (sub.createdAt.getTime() - contest.start_time.getTime()) / 60000
           );
           stat.penalty += penaltyMinutes;
         }
       }
     }
 
+    const userIds = Array.from(userStats.keys());
+    const usernameMap = new Map<string, string>();
+    if (userIds.length > 0) {
+      try {
+        const userRows = await db
+          .select({ id: usersTable.id, username: usersTable.username })
+          .from(usersTable)
+          .where(inArray(usersTable.id, userIds));
+        for (const row of userRows) {
+          usernameMap.set(row.id, row.username);
+        }
+      } catch {}
+    }
+
     const entries: LeaderboardEntry[] = [];
     for (const [userId, stat] of userStats.entries()) {
       const score = encodeLeaderboardScore(stat.solved.size, stat.penalty);
-      const user = memoryDb.users.get(userId);
       entries.push({
         rank: 0,
         userId,
-        username: user?.username || `Participant_${userId.substring(0, 6)}`,
+        username: usernameMap.get(userId) || `Participant_${userId.substring(0, 6)}`,
         problemsSolved: stat.solved.size,
         totalPenaltySeconds: stat.penalty * 60,
         score,

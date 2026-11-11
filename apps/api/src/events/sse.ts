@@ -1,8 +1,11 @@
 import { Request, Response, Router } from 'express';
+import { eq } from 'drizzle-orm';
 import { redisSubscriber, isRedisHealthy } from '../config/redis.js';
-import { memoryDb } from '../config/db.js';
+import { db } from '../db/index.js';
+import { submissions } from '../db/schema.js';
 import { REDIS_KEYS, SubmissionEvent, SubmissionStatus, Verdict } from '@judge/shared';
 import { logger } from '../utils/logger.js';
+import { isUuid } from '../utils/db-error.js';
 
 interface SSEClient {
   id: string;
@@ -94,7 +97,7 @@ export const sseRouter = Router();
 /**
  * SSE Endpoint for Live Updates on a Submission (AC-LV-01..04, EC-09)
  */
-sseRouter.get('/:id/live', (req: Request, res: Response) => {
+sseRouter.get('/:id/live', async (req: Request, res: Response) => {
   const submissionId = req.params.id;
 
   // Set SSE Headers
@@ -108,24 +111,35 @@ sseRouter.get('/:id/live', (req: Request, res: Response) => {
   res.write(': connected\n\n');
 
   // Immediately check current state in DB (catch-up / reconnect handling AC-LV-03 & EC-09)
-  const currentSub = memoryDb.submissions.get(submissionId);
-  if (currentSub) {
-    const initEvent: SubmissionEvent = {
-      submissionId,
-      status: (currentSub.status as any) || SubmissionStatus.QUEUED,
-      verdict: (currentSub.verdict as Verdict) || undefined,
-      failedTestIndex: currentSub.failed_test_index || undefined,
-      executionTimeMs: currentSub.execution_time_ms || undefined,
-      memoryUsedKb: currentSub.memory_used_kb || undefined,
-      timestamp: Date.now(),
-    };
+  if (isUuid(submissionId)) {
+    try {
+      const [currentSub] = await db
+        .select()
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+        .limit(1);
 
-    res.write(`data: ${JSON.stringify(initEvent)}\n\n`);
+      if (currentSub) {
+        const initEvent: SubmissionEvent = {
+          submissionId,
+          status: (currentSub.status as SubmissionStatus) || SubmissionStatus.QUEUED,
+          verdict: (currentSub.verdict as Verdict) || undefined,
+          failedTestIndex: currentSub.failedTestIndex ?? undefined,
+          executionTimeMs: currentSub.executionTimeMs ?? undefined,
+          memoryUsedKb: currentSub.memoryUsedKb ?? undefined,
+          timestamp: Date.now(),
+        };
 
-    // If already finished, terminate immediately (EC-09)
-    if (currentSub.verdict) {
-      res.end();
-      return;
+        res.write(`data: ${JSON.stringify(initEvent)}\n\n`);
+
+        // If already finished, terminate immediately (EC-09)
+        if (currentSub.verdict) {
+          res.end();
+          return;
+        }
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, 'Failed SSE initial submission lookup');
     }
   }
 

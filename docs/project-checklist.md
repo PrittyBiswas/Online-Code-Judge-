@@ -45,9 +45,19 @@ This checklist tracks milestone completion across implementation days.
 - [x] Verify live DB connection, schema tables, insert/read, and foreign key enforcement (`pnpm db:verify`)
 - [x] Update `docs/learning-notes.md`, `README.md`, `apps/api/README.md`, and `docs/changelog.md`
 
-## Day 5+ — Upcoming Milestones (Not Started Yet)
+## Day 5 — PostgreSQL CRUD Integration with Drizzle ORM
 
-- [ ] Complete end-to-end API routes with real database persistence
+- [x] Migrate `authService` and `usersService` to PostgreSQL CRUD via Drizzle ORM (bcrypt hashes preserved, never exposed)
+- [x] Migrate `problemsService` to transactional PostgreSQL CRUD (`createProblem`, `getProblem` by ID/slug, `listProblems`, `updateProblem`, `deleteProblem`)
+- [x] Migrate `submissionsService` (plus `adminService`, `leaderboardService`, `sse.ts`, and `contestsService` user/submission queries) to PostgreSQL
+- [x] Add safe PostgreSQL error mapping (`apps/api/src/utils/db-error.ts`) and `isUuid()` validation
+- [x] Add real PostgreSQL integration test suite (`apps/api/tests/postgres.integration.test.ts` / `pnpm test:integration`) with isolated cleanup
+- [x] Verify `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test`, `pnpm test:integration`, and `pnpm infra:verify`
+- [x] Update `docs/learning-notes.md`, `README.md`, `apps/api/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
+
+## Day 6+ — Upcoming Milestones (Not Started Yet)
+
+- [ ] Complete remaining contest persistence tables & Tier-2 features
 - [ ] Wire BullMQ submission queue to `apps/judge-worker` Docker sandbox execution
 - [ ] Build Monaco Editor code submission workflow in `apps/frontend`
 - [ ] End-to-end attack-suite security verification

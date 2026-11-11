@@ -33,4 +33,3 @@ export async function closeDatabase(): Promise<void> {
 }
 
 export { schema };
-

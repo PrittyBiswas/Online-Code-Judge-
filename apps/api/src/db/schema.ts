@@ -158,4 +158,3 @@ export type TestCaseRecord = typeof testCases.$inferSelect;
 export type NewTestCaseRecord = typeof testCases.$inferInsert;
 export type SubmissionRecord = typeof submissions.$inferSelect;
 export type NewSubmissionRecord = typeof submissions.$inferInsert;
-

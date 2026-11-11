@@ -1,5 +1,7 @@
+import { eq, inArray } from 'drizzle-orm';
 import { redisClient, isRedisHealthy } from '../../config/redis.js';
-import { memoryDb } from '../../config/db.js';
+import { db } from '../../db/index.js';
+import { submissions, users } from '../../db/schema.js';
 import {
   REDIS_KEYS,
   LeaderboardEntry,
@@ -7,6 +9,7 @@ import {
   encodeLeaderboardScore,
   decodeLeaderboardScore,
 } from '@judge/shared';
+import { mapDatabaseError } from '../../utils/db-error.js';
 
 export class LeaderboardService {
   /**
@@ -58,29 +61,33 @@ export class LeaderboardService {
    */
   async getGlobalLeaderboard(limit: number = 50): Promise<LeaderboardEntry[]> {
     if (!isRedisHealthy()) {
-      return this.computeFromMemory();
+      return this.computeFromDatabase();
     }
 
     try {
-      // ZREVRANGE with scores: returns [userId1, score1, userId2, score2, ...]
       const raw = await redisClient.zrevrange(
         REDIS_KEYS.GLOBAL_LEADERBOARD,
         0,
         limit - 1,
         'WITHSCORES'
       );
+      const userIds: string[] = [];
+      for (let i = 0; i < raw.length; i += 2) {
+        userIds.push(raw[i]);
+      }
+
+      const usernameMap = await this.fetchUsernames(userIds);
       const entries: LeaderboardEntry[] = [];
 
       for (let i = 0; i < raw.length; i += 2) {
         const userId = raw[i];
         const score = parseFloat(raw[i + 1]);
-        const user = memoryDb.users.get(userId);
         const { problemsSolved, totalPenaltySeconds } = decodeLeaderboardScore(score);
 
         entries.push({
           rank: i / 2 + 1,
           userId,
-          username: user?.username || `User_${userId.substring(0, 6)}`,
+          username: usernameMap.get(userId) || `User_${userId.substring(0, 6)}`,
           problemsSolved,
           totalPenaltySeconds,
           score,
@@ -89,112 +96,147 @@ export class LeaderboardService {
 
       return entries;
     } catch {
-      return this.computeFromMemory();
+      return this.computeFromDatabase();
     }
   }
 
   /**
    * Rebuilds Redis leaderboard from Postgres state (AC-LB-03 / Card 6)
-   * Proves that rebuilt copy matches live one.
    */
   async rebuildLeaderboard(): Promise<{ count: number; rebuiltEntries: LeaderboardEntry[] }> {
-    // 1. Scan all submissions for ACCEPTED verdicts
-    const solvedMap = new Map<string, Set<string>>(); // userId -> Set<problemId>
-    const penaltyMap = new Map<string, number>(); // userId -> totalPenaltySeconds
+    try {
+      const acceptedSubs = await db
+        .select({
+          userId: submissions.userId,
+          problemId: submissions.problemId,
+          executionTimeMs: submissions.executionTimeMs,
+        })
+        .from(submissions)
+        .where(eq(submissions.verdict, Verdict.ACCEPTED));
 
-    for (const sub of memoryDb.submissions.values()) {
-      if (sub.verdict === Verdict.ACCEPTED) {
-        if (!solvedMap.has(sub.user_id)) {
-          solvedMap.set(sub.user_id, new Set());
-          penaltyMap.set(sub.user_id, 0);
+      const solvedMap = new Map<string, Set<string>>();
+      const penaltyMap = new Map<string, number>();
+
+      for (const sub of acceptedSubs) {
+        if (!solvedMap.has(sub.userId)) {
+          solvedMap.set(sub.userId, new Set());
+          penaltyMap.set(sub.userId, 0);
         }
-        const userSet = solvedMap.get(sub.user_id)!;
-        if (!userSet.has(sub.problem_id)) {
-          userSet.add(sub.problem_id);
-          const penalty = Math.floor((sub.execution_time_ms || 100) / 1000);
-          penaltyMap.set(sub.user_id, (penaltyMap.get(sub.user_id) || 0) + penalty);
+        const userSet = solvedMap.get(sub.userId)!;
+        if (!userSet.has(sub.problemId)) {
+          userSet.add(sub.problemId);
+          const penalty = Math.floor((sub.executionTimeMs || 100) / 1000);
+          penaltyMap.set(sub.userId, (penaltyMap.get(sub.userId) || 0) + penalty);
         }
       }
-    }
-
-    // 2. Wipe Redis leaderboard key (AC-LB-03)
-    if (isRedisHealthy()) {
-      try {
-        await redisClient.del(REDIS_KEYS.GLOBAL_LEADERBOARD);
-      } catch {}
-    }
-
-    // 3. Re-insert calculated scores
-    const rebuiltEntries: LeaderboardEntry[] = [];
-    for (const [userId, problems] of solvedMap.entries()) {
-      const penalty = penaltyMap.get(userId) || 0;
-      const score = encodeLeaderboardScore(problems.size, penalty);
 
       if (isRedisHealthy()) {
         try {
-          await redisClient.zadd(REDIS_KEYS.GLOBAL_LEADERBOARD, score, userId);
+          await redisClient.del(REDIS_KEYS.GLOBAL_LEADERBOARD);
         } catch {}
       }
 
-      const user = memoryDb.users.get(userId);
-      rebuiltEntries.push({
-        rank: 0,
-        userId,
-        username: user?.username || userId,
-        problemsSolved: problems.size,
-        totalPenaltySeconds: penalty,
-        score,
+      const usernameMap = await this.fetchUsernames(Array.from(solvedMap.keys()));
+      const rebuiltEntries: LeaderboardEntry[] = [];
+
+      for (const [userId, problemSet] of solvedMap.entries()) {
+        const penalty = penaltyMap.get(userId) || 0;
+        const score = encodeLeaderboardScore(problemSet.size, penalty);
+
+        if (isRedisHealthy()) {
+          try {
+            await redisClient.zadd(REDIS_KEYS.GLOBAL_LEADERBOARD, score, userId);
+          } catch {}
+        }
+
+        rebuiltEntries.push({
+          rank: 0,
+          userId,
+          username: usernameMap.get(userId) || userId,
+          problemsSolved: problemSet.size,
+          totalPenaltySeconds: penalty,
+          score,
+        });
+      }
+
+      rebuiltEntries.sort((a, b) => b.score - a.score);
+      rebuiltEntries.forEach((e, idx) => {
+        e.rank = idx + 1;
       });
+
+      return {
+        count: rebuiltEntries.length,
+        rebuiltEntries,
+      };
+    } catch (err) {
+      throw mapDatabaseError(err);
     }
-
-    // Sort by score descending
-    rebuiltEntries.sort((a, b) => b.score - a.score);
-    rebuiltEntries.forEach((e, idx) => {
-      e.rank = idx + 1;
-    });
-
-    return {
-      count: rebuiltEntries.length,
-      rebuiltEntries,
-    };
   }
 
-  private computeFromMemory(): LeaderboardEntry[] {
-    const userStats = new Map<string, { solved: Set<string>; penalty: number }>();
+  private async computeFromDatabase(): Promise<LeaderboardEntry[]> {
+    try {
+      const acceptedSubs = await db
+        .select({
+          userId: submissions.userId,
+          problemId: submissions.problemId,
+          executionTimeMs: submissions.executionTimeMs,
+        })
+        .from(submissions)
+        .where(eq(submissions.verdict, Verdict.ACCEPTED));
 
-    for (const sub of memoryDb.submissions.values()) {
-      if (sub.verdict === Verdict.ACCEPTED) {
-        if (!userStats.has(sub.user_id)) {
-          userStats.set(sub.user_id, { solved: new Set(), penalty: 0 });
+      const userStats = new Map<string, { solved: Set<string>; penalty: number }>();
+
+      for (const sub of acceptedSubs) {
+        if (!userStats.has(sub.userId)) {
+          userStats.set(sub.userId, { solved: new Set(), penalty: 0 });
         }
-        const stat = userStats.get(sub.user_id)!;
-        if (!stat.solved.has(sub.problem_id)) {
-          stat.solved.add(sub.problem_id);
-          stat.penalty += Math.floor((sub.execution_time_ms || 100) / 1000);
+        const stat = userStats.get(sub.userId)!;
+        if (!stat.solved.has(sub.problemId)) {
+          stat.solved.add(sub.problemId);
+          stat.penalty += Math.floor((sub.executionTimeMs || 100) / 1000);
         }
       }
-    }
 
-    const entries: LeaderboardEntry[] = [];
-    for (const [userId, stat] of userStats.entries()) {
-      const score = encodeLeaderboardScore(stat.solved.size, stat.penalty);
-      const user = memoryDb.users.get(userId);
-      entries.push({
-        rank: 0,
-        userId,
-        username: user?.username || `User_${userId.substring(0, 6)}`,
-        problemsSolved: stat.solved.size,
-        totalPenaltySeconds: stat.penalty,
-        score,
+      const usernameMap = await this.fetchUsernames(Array.from(userStats.keys()));
+      const entries: LeaderboardEntry[] = [];
+
+      for (const [userId, stat] of userStats.entries()) {
+        const score = encodeLeaderboardScore(stat.solved.size, stat.penalty);
+        entries.push({
+          rank: 0,
+          userId,
+          username: usernameMap.get(userId) || `User_${userId.substring(0, 6)}`,
+          problemsSolved: stat.solved.size,
+          totalPenaltySeconds: stat.penalty,
+          score,
+        });
+      }
+
+      entries.sort((a, b) => b.score - a.score);
+      entries.forEach((e, idx) => {
+        e.rank = idx + 1;
       });
+
+      return entries;
+    } catch (err) {
+      throw mapDatabaseError(err);
     }
+  }
 
-    entries.sort((a, b) => b.score - a.score);
-    entries.forEach((e, idx) => {
-      e.rank = idx + 1;
-    });
+  private async fetchUsernames(userIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (userIds.length === 0) return map;
 
-    return entries;
+    try {
+      const rows = await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(inArray(users.id, userIds));
+      for (const row of rows) {
+        map.set(row.id, row.username);
+      }
+    } catch {}
+    return map;
   }
 }
 

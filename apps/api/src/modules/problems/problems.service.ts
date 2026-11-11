@@ -1,7 +1,6 @@
 import crypto from 'crypto';
-import { memoryDb } from '../../config/db.js';
-import { minioService } from '../../config/minio.js';
-import { redisClient, isRedisHealthy } from '../../config/redis.js';
+import { and, arrayContains, desc, eq, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   UpdateProblemInput,
   Problem,
@@ -11,45 +10,40 @@ import {
   createProblemSchema,
   queryProblemsSchema,
 } from '@judge/shared';
-import { z } from 'zod';
+import { db } from '../../db/index.js';
+import { problems, testCases, type ProblemRecord } from '../../db/schema.js';
+import { minioService } from '../../config/minio.js';
+import { redisClient, isRedisHealthy } from '../../config/redis.js';
 import { AppError } from '../../utils/app-error.js';
-import { ProblemRow, TestCaseRow } from '../../types/db.js';
+import { isUuid, mapDatabaseError } from '../../utils/db-error.js';
 
 type CreateProblemParams = z.input<typeof createProblemSchema>;
 type QueryProblemsParams = z.input<typeof queryProblemsSchema>;
 
 export class ProblemsService {
   async createProblem(setterId: string, rawInput: CreateProblemParams): Promise<Problem> {
+    if (!isUuid(setterId)) {
+      throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Invalid setter user reference', 400);
+    }
+
     const input = createProblemSchema.parse(rawInput);
     const id = crypto.randomUUID();
-    const slug =
-      input.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '') +
-      '-' +
-      id.substring(0, 6);
+    const baseSlug = input.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const slug = `${baseSlug || 'problem'}-${id.substring(0, 6)}`;
 
-    const problemRow: ProblemRow = {
-      id,
-      title: input.title,
-      slug,
-      statement: input.statement,
-      difficulty: input.difficulty,
-      tags: input.tags,
-      time_limit_ms: input.timeLimitMs,
-      memory_limit_mb: input.memoryLimitMb,
-      sample_input: input.sampleInput,
-      sample_expected_output: input.sampleExpectedOutput,
-      setter_id: setterId,
-      is_archived: false,
-      created_at: new Date(),
-      updated_at: new Date(),
-    };
+    // Upload test case payloads to MinIO first so DB stores only object keys (AC-PR-01)
+    const testCaseRecords: Array<{
+      id: string;
+      problemId: string;
+      index: number;
+      inputKey: string;
+      expectedOutputKey: string;
+      isHidden: boolean;
+    }> = [];
 
-    memoryDb.problems.set(id, problemRow);
-
-    // Save test cases into MinIO; store only keys in database (AC-PR-01)
     if (input.testCases && input.testCases.length > 0) {
       for (let i = 0; i < input.testCases.length; i++) {
         const tc = input.testCases[i];
@@ -59,21 +53,51 @@ export class ProblemsService {
         await minioService.putObject(inputKey, tc.input);
         await minioService.putObject(outputKey, tc.expectedOutput);
 
-        const testCaseRow: TestCaseRow = {
+        testCaseRecords.push({
           id: crypto.randomUUID(),
-          problem_id: id,
+          problemId: id,
           index: i,
-          input_key: inputKey,
-          expected_output_key: outputKey,
-          is_hidden: tc.isHidden ?? true,
-          created_at: new Date(),
-        };
-
-        memoryDb.testCases.set(testCaseRow.id, testCaseRow);
+          inputKey,
+          expectedOutputKey: outputKey,
+          isHidden: tc.isHidden ?? true,
+        });
       }
     }
 
-    return this.mapToDto(problemRow);
+    try {
+      const created = await db.transaction(async (tx) => {
+        const [insertedProblem] = await tx
+          .insert(problems)
+          .values({
+            id,
+            title: input.title,
+            slug,
+            statement: input.statement,
+            difficulty: input.difficulty,
+            tags: input.tags,
+            timeLimitMs: input.timeLimitMs,
+            memoryLimitMb: input.memoryLimitMb,
+            sampleInput: input.sampleInput,
+            sampleExpectedOutput: input.sampleExpectedOutput,
+            setterId,
+            isArchived: false,
+          })
+          .returning();
+
+        if (testCaseRecords.length > 0) {
+          await tx.insert(testCases).values(testCaseRecords);
+        }
+
+        return insertedProblem;
+      });
+
+      return this.mapToDto(created);
+    } catch (err) {
+      throw mapDatabaseError(err, {
+        uniqueViolation: 'A problem with this slug already exists',
+        foreignKeyViolation: 'Problem setter user does not exist',
+      });
+    }
   }
 
   async getProblem(idOrSlug: string): Promise<Problem> {
@@ -89,10 +113,22 @@ export class ProblemsService {
       } catch {}
     }
 
-    // 2. Query database
-    const problem = Array.from(memoryDb.problems.values()).find(
-      (p) => (p.id === idOrSlug || p.slug === idOrSlug) && !p.is_archived
-    );
+    // 2. Query PostgreSQL
+    let problem: ProblemRecord | undefined;
+    try {
+      const lookupFilter = isUuid(idOrSlug)
+        ? or(eq(problems.id, idOrSlug), eq(problems.slug, idOrSlug))
+        : eq(problems.slug, idOrSlug);
+
+      const rows = await db
+        .select()
+        .from(problems)
+        .where(and(lookupFilter, eq(problems.isArchived, false)))
+        .limit(1);
+      problem = rows[0];
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
 
     if (!problem) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
@@ -112,31 +148,77 @@ export class ProblemsService {
   }
 
   async updateProblem(id: string, input: UpdateProblemInput): Promise<Problem> {
-    const problem = memoryDb.problems.get(id);
-    if (!problem || problem.is_archived) {
+    if (!isUuid(id)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
     }
 
-    if (input.title) problem.title = input.title;
-    if (input.statement) problem.statement = input.statement;
-    if (input.difficulty) problem.difficulty = input.difficulty;
-    if (input.tags) problem.tags = input.tags;
-    if (input.timeLimitMs) problem.time_limit_ms = input.timeLimitMs;
-    if (input.memoryLimitMb) problem.memory_limit_mb = input.memoryLimitMb;
-    if (input.sampleInput !== undefined) problem.sample_input = input.sampleInput;
-    if (input.sampleExpectedOutput !== undefined)
-      problem.sample_expected_output = input.sampleExpectedOutput;
-    problem.updated_at = new Date();
+    const patch: Partial<typeof problems.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (input.title !== undefined) patch.title = input.title;
+    if (input.statement !== undefined) patch.statement = input.statement;
+    if (input.difficulty !== undefined) patch.difficulty = input.difficulty;
+    if (input.tags !== undefined) patch.tags = input.tags;
+    if (input.timeLimitMs !== undefined) patch.timeLimitMs = input.timeLimitMs;
+    if (input.memoryLimitMb !== undefined) patch.memoryLimitMb = input.memoryLimitMb;
+    if (input.sampleInput !== undefined) patch.sampleInput = input.sampleInput;
+    if (input.sampleExpectedOutput !== undefined) {
+      patch.sampleExpectedOutput = input.sampleExpectedOutput;
+    }
+
+    let updated: ProblemRecord | undefined;
+    try {
+      const rows = await db
+        .update(problems)
+        .set(patch)
+        .where(and(eq(problems.id, id), eq(problems.isArchived, false)))
+        .returning();
+      updated = rows[0];
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
+
+    if (!updated) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
+    }
 
     // Invalidate Redis cache (AC-PR-05 / Card 8)
     if (isRedisHealthy()) {
       try {
         await redisClient.del(REDIS_KEYS.PROBLEM_CACHE(id));
-        await redisClient.del(REDIS_KEYS.PROBLEM_CACHE(problem.slug));
+        await redisClient.del(REDIS_KEYS.PROBLEM_CACHE(updated.slug));
       } catch {}
     }
 
-    return this.mapToDto(problem);
+    return this.mapToDto(updated);
+  }
+
+  async deleteProblem(id: string): Promise<void> {
+    if (!isUuid(id)) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
+    }
+
+    let deleted: { id: string; slug: string } | undefined;
+    try {
+      const rows = await db
+        .delete(problems)
+        .where(eq(problems.id, id))
+        .returning({ id: problems.id, slug: problems.slug });
+      deleted = rows[0];
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
+
+    if (!deleted) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
+    }
+
+    if (isRedisHealthy()) {
+      try {
+        await redisClient.del(REDIS_KEYS.PROBLEM_CACHE(id));
+        await redisClient.del(REDIS_KEYS.PROBLEM_CACHE(deleted.slug));
+      } catch {}
+    }
   }
 
   /**
@@ -146,53 +228,91 @@ export class ProblemsService {
     rawParams: QueryProblemsParams
   ): Promise<{ items: Problem[]; nextCursor: string | null }> {
     const params = queryProblemsSchema.parse(rawParams);
-    let items = Array.from(memoryDb.problems.values()).filter((p) => !p.is_archived);
-
-    // Filter by difficulty (AND condition)
-    if (params.difficulty) {
-      items = items.filter((p) => p.difficulty === params.difficulty);
-    }
-
-    // Filter by tag (AND condition)
-    if (params.tag) {
-      items = items.filter((p) => p.tags.includes(params.tag!));
-    }
-
-    // Search query with ranking (title match ranked higher than statement match)
-    if (params.search && params.search.trim().length > 0) {
-      const q = params.search.trim().toLowerCase();
-      items = items
-        .filter((p) => p.title.toLowerCase().includes(q) || p.statement.toLowerCase().includes(q))
-        .sort((a, b) => {
-          const aTitle = a.title.toLowerCase().includes(q) ? 2 : 0;
-          const bTitle = b.title.toLowerCase().includes(q) ? 2 : 0;
-          return bTitle - aTitle;
-        });
-    } else {
-      // Default order: newest first
-      items.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-    }
-
-    // Cursor pagination by stable item ID (AC-PR-04)
-    if (params.cursor) {
-      const cursorIndex = items.findIndex((p) => p.id === params.cursor);
-      if (cursorIndex !== -1) {
-        items = items.slice(cursorIndex + 1);
-      }
-    }
-
     const limit = params.limit || 20;
-    const paginated = items.slice(0, limit);
-    const lastItem = paginated[paginated.length - 1];
-    const nextCursor = items.length > limit && lastItem ? lastItem.id : null;
+    const conditions: SQL[] = [eq(problems.isArchived, false)];
 
-    return {
-      items: paginated.map((p) => this.mapToDto(p)),
-      nextCursor,
-    };
+    if (params.difficulty) {
+      conditions.push(eq(problems.difficulty, params.difficulty));
+    }
+
+    if (params.tag) {
+      conditions.push(arrayContains(problems.tags, [params.tag]));
+    }
+
+    const searchText = params.search?.trim();
+    if (searchText) {
+      const pattern = `%${searchText}%`;
+      const searchCond = or(ilike(problems.title, pattern), ilike(problems.statement, pattern));
+      if (searchCond) conditions.push(searchCond);
+    }
+
+    try {
+      if (params.cursor && isUuid(params.cursor) && !searchText) {
+        const [cursorRow] = await db
+          .select({ createdAt: problems.createdAt, id: problems.id })
+          .from(problems)
+          .where(eq(problems.id, params.cursor))
+          .limit(1);
+
+        if (cursorRow) {
+          const cursorCond = or(
+            lt(problems.createdAt, cursorRow.createdAt),
+            and(eq(problems.createdAt, cursorRow.createdAt), lt(problems.id, cursorRow.id))
+          );
+          if (cursorCond) conditions.push(cursorCond);
+        }
+      }
+
+      if (searchText) {
+        const pattern = `%${searchText}%`;
+        const allMatches = await db
+          .select()
+          .from(problems)
+          .where(and(...conditions))
+          .orderBy(
+            desc(sql`CASE WHEN ${problems.title} ILIKE ${pattern} THEN 1 ELSE 0 END`),
+            desc(problems.createdAt),
+            desc(problems.id)
+          );
+
+        let filtered = allMatches;
+        if (params.cursor) {
+          const cursorIdx = filtered.findIndex((p) => p.id === params.cursor);
+          if (cursorIdx !== -1) {
+            filtered = filtered.slice(cursorIdx + 1);
+          }
+        }
+
+        const page = filtered.slice(0, limit);
+        const lastItem = page[page.length - 1];
+        const nextCursor = filtered.length > limit && lastItem ? lastItem.id : null;
+        return {
+          items: page.map((p) => this.mapToDto(p)),
+          nextCursor,
+        };
+      }
+
+      const rows = await db
+        .select()
+        .from(problems)
+        .where(and(...conditions))
+        .orderBy(desc(problems.createdAt), desc(problems.id))
+        .limit(limit + 1);
+
+      const hasMore = rows.length > limit;
+      const page = hasMore ? rows.slice(0, limit) : rows;
+      const lastItem = page[page.length - 1];
+
+      return {
+        items: page.map((p) => this.mapToDto(p)),
+        nextCursor: hasMore && lastItem ? lastItem.id : null,
+      };
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
   }
 
-  private mapToDto(p: ProblemRow): Problem {
+  private mapToDto(p: ProblemRecord): Problem {
     return {
       id: p.id,
       title: p.title,
@@ -200,14 +320,14 @@ export class ProblemsService {
       statement: p.statement,
       difficulty: p.difficulty as ProblemDifficulty,
       tags: p.tags,
-      timeLimitMs: p.time_limit_ms,
-      memoryLimitMb: p.memory_limit_mb,
-      sampleInput: p.sample_input,
-      sampleExpectedOutput: p.sample_expected_output,
-      setterId: p.setter_id,
-      isArchived: p.is_archived,
-      createdAt: p.created_at.toISOString(),
-      updatedAt: p.updated_at.toISOString(),
+      timeLimitMs: p.timeLimitMs,
+      memoryLimitMb: p.memoryLimitMb,
+      sampleInput: p.sampleInput,
+      sampleExpectedOutput: p.sampleExpectedOutput,
+      setterId: p.setterId,
+      isArchived: p.isArchived,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
     };
   }
 }

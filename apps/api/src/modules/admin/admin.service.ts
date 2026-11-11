@@ -1,8 +1,17 @@
-import { memoryDb } from '../../config/db.js';
-import { judgeQueue } from '../../config/queue.js';
-import { SubmissionStatus, Verdict, ERROR_CODES, SubmissionJobData } from '@judge/shared';
-import { AppError } from '../../utils/app-error.js';
+import { eq } from 'drizzle-orm';
 import { execFile } from 'child_process';
+import {
+  SubmissionStatus,
+  Verdict,
+  ERROR_CODES,
+  SubmissionJobData,
+  SupportedLanguage,
+} from '@judge/shared';
+import { db } from '../../db/index.js';
+import { problems, submissions } from '../../db/schema.js';
+import { judgeQueue } from '../../config/queue.js';
+import { AppError } from '../../utils/app-error.js';
+import { isUuid, mapDatabaseError } from '../../utils/db-error.js';
 
 export class AdminService {
   async getSystemStats() {
@@ -14,101 +23,159 @@ export class AdminService {
       } catch {}
     }
 
-    const submissions = Array.from(memoryDb.submissions.values());
-    const runningCount = submissions.filter((s) => s.status === SubmissionStatus.RUNNING).length;
-    const queuedCount = submissions.filter((s) => s.status === SubmissionStatus.QUEUED).length;
+    try {
+      const allSubmissions = await db
+        .select({
+          status: submissions.status,
+          verdict: submissions.verdict,
+          executionTimeMs: submissions.executionTimeMs,
+        })
+        .from(submissions);
 
-    const verdictCounts: Record<string, number> = {};
-    let totalExecutionTime = 0;
-    let completedCount = 0;
+      const runningCount = allSubmissions.filter(
+        (s) => s.status === SubmissionStatus.RUNNING
+      ).length;
+      const queuedCount = allSubmissions.filter((s) => s.status === SubmissionStatus.QUEUED).length;
 
-    for (const sub of submissions) {
-      if (sub.verdict) {
-        verdictCounts[sub.verdict] = (verdictCounts[sub.verdict] || 0) + 1;
+      const verdictCounts: Record<string, number> = {};
+      let totalExecutionTime = 0;
+      let completedCount = 0;
+
+      for (const sub of allSubmissions) {
+        if (sub.verdict) {
+          verdictCounts[sub.verdict] = (verdictCounts[sub.verdict] || 0) + 1;
+        }
+        if (sub.executionTimeMs) {
+          totalExecutionTime += sub.executionTimeMs;
+          completedCount++;
+        }
       }
-      if (sub.execution_time_ms) {
-        totalExecutionTime += sub.execution_time_ms;
-        completedCount++;
-      }
+
+      const averageJudgeTimeMs =
+        completedCount > 0 ? Math.round(totalExecutionTime / completedCount) : 0;
+      const failedJobsCount =
+        (verdictCounts[Verdict.INTERNAL_ERROR] || 0) + (verdictCounts[Verdict.RUNTIME_ERROR] || 0);
+
+      return {
+        queueDepth: queueDepth || queuedCount,
+        runningSubmissions: runningCount,
+        verdictCounts,
+        averageJudgeTimeMs,
+        failedJobsCount,
+        totalSubmissions: allSubmissions.length,
+      };
+    } catch (err) {
+      throw mapDatabaseError(err);
     }
-
-    const averageJudgeTimeMs =
-      completedCount > 0 ? Math.round(totalExecutionTime / completedCount) : 0;
-    const failedJobsCount =
-      (verdictCounts[Verdict.INTERNAL_ERROR] || 0) + (verdictCounts[Verdict.RUNTIME_ERROR] || 0);
-
-    return {
-      queueDepth: queueDepth || queuedCount,
-      runningSubmissions: runningCount,
-      verdictCounts,
-      averageJudgeTimeMs,
-      failedJobsCount,
-      totalSubmissions: submissions.length,
-    };
   }
 
   async rejudgeSubmission(submissionId: string) {
-    const sub = memoryDb.submissions.get(submissionId);
-    if (!sub) {
+    if (!isUuid(submissionId)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
     }
 
-    const problem = memoryDb.problems.get(sub.problem_id);
-    if (!problem) {
-      throw new AppError(ERROR_CODES.NOT_FOUND, 'Associated problem not found', 404);
+    try {
+      const [sub] = await db
+        .select()
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+        .limit(1);
+
+      if (!sub) {
+        throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
+      }
+
+      const [problem] = await db
+        .select({
+          id: problems.id,
+          timeLimitMs: problems.timeLimitMs,
+          memoryLimitMb: problems.memoryLimitMb,
+        })
+        .from(problems)
+        .where(eq(problems.id, sub.problemId))
+        .limit(1);
+
+      if (!problem) {
+        throw new AppError(ERROR_CODES.NOT_FOUND, 'Associated problem not found', 404);
+      }
+
+      // Reset status to QUEUED and clear previous verdict
+      await db
+        .update(submissions)
+        .set({
+          status: SubmissionStatus.QUEUED,
+          verdict: null,
+          executionTimeMs: null,
+          memoryUsedKb: null,
+          failedTestIndex: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(submissions.id, submissionId));
+
+      const jobData: SubmissionJobData = {
+        submissionId: sub.id,
+        problemId: sub.problemId,
+        userId: sub.userId,
+        code: sub.code,
+        language: sub.language as SupportedLanguage,
+        timeLimitMs: problem.timeLimitMs,
+        memoryLimitMb: problem.memoryLimitMb,
+      };
+
+      if (judgeQueue) {
+        try {
+          await judgeQueue.add('evaluate-submission', jobData, {
+            jobId: `${sub.id}-rejudge-${Date.now()}`,
+          });
+        } catch {}
+      }
+
+      return { message: 'Submission re-queued for rejudging', submissionId };
+    } catch (err) {
+      throw mapDatabaseError(err);
     }
-
-    // Reset status to QUEUED and clear previous verdict
-    sub.status = SubmissionStatus.QUEUED;
-    sub.verdict = null;
-    sub.execution_time_ms = null;
-    sub.memory_used_kb = null;
-    sub.failed_test_index = null;
-    sub.updated_at = new Date();
-
-    const jobData: SubmissionJobData = {
-      submissionId: sub.id,
-      problemId: sub.problem_id,
-      userId: sub.user_id,
-      code: sub.code,
-      language: sub.language as any,
-      timeLimitMs: problem.time_limit_ms,
-      memoryLimitMb: problem.memory_limit_mb,
-    };
-
-    if (judgeQueue) {
-      try {
-        await judgeQueue.add('evaluate-submission', jobData, {
-          jobId: `${sub.id}-rejudge-${Date.now()}`,
-        });
-      } catch {}
-    }
-
-    return { message: 'Submission re-queued for rejudging', submissionId };
   }
 
   async killSubmission(submissionId: string) {
-    const sub = memoryDb.submissions.get(submissionId);
-    if (!sub) {
+    if (!isUuid(submissionId)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
     }
 
-    // Kill any active container matching this submission pattern
-    execFile('docker', ['ps', '-q', '--filter', `name=judge-sandbox-`], (err, stdout) => {
-      if (!err && stdout.trim()) {
-        const ids = stdout.trim().split('\n');
-        for (const id of ids) {
-          execFile('docker', ['kill', id.trim()], () => {});
-        }
+    try {
+      const [existing] = await db
+        .select({ id: submissions.id })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+        .limit(1);
+
+      if (!existing) {
+        throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
       }
-    });
 
-    // Mark as INTERNAL_ERROR (AC-SJ-08)
-    sub.status = SubmissionStatus.COMPLETED;
-    sub.verdict = Verdict.INTERNAL_ERROR;
-    sub.updated_at = new Date();
+      // Kill any active container matching this submission pattern
+      execFile('docker', ['ps', '-q', '--filter', `name=judge-sandbox-`], (err, stdout) => {
+        if (!err && stdout.trim()) {
+          const ids = stdout.trim().split('\n');
+          for (const id of ids) {
+            execFile('docker', ['kill', id.trim()], () => {});
+          }
+        }
+      });
 
-    return { message: 'Submission killed and flagged as INTERNAL_ERROR', submissionId };
+      // Mark as INTERNAL_ERROR (AC-SJ-08)
+      await db
+        .update(submissions)
+        .set({
+          status: SubmissionStatus.COMPLETED,
+          verdict: Verdict.INTERNAL_ERROR,
+          updatedAt: new Date(),
+        })
+        .where(eq(submissions.id, submissionId));
+
+      return { message: 'Submission killed and flagged as INTERNAL_ERROR', submissionId };
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
   }
 }
 

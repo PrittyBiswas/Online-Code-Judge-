@@ -14,7 +14,7 @@ src/
 ├── routes/       # Express route registration
 ├── services/     # Service exports
 ├── types/        # Backend TypeScript row & domain types
-├── utils/        # AppError, Pino logger, Prometheus metrics
+├── utils/        # AppError, PostgreSQL error mapper (db-error.ts), Pino logger, metrics
 ├── app.ts        # Express app configuration (/, /health/live, JSON, errors)
 └── server.ts     # HTTP server bootstrap and graceful shutdown
 ```
@@ -30,6 +30,7 @@ pnpm --filter @judge/api build
 pnpm db:generate
 pnpm db:migrate
 pnpm db:verify
+pnpm test:integration
 ```
 
 ## Endpoints Verified for Day 2

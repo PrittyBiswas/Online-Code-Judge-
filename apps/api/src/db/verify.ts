@@ -103,7 +103,9 @@ async function verifyDatabase() {
     }
 
     if (!fkRejected) {
-      throw new Error('Expected foreign key constraint on test_cases.problem_id to reject bad UUID.');
+      throw new Error(
+        'Expected foreign key constraint on test_cases.problem_id to reject bad UUID.'
+      );
     }
 
     console.log(
@@ -127,4 +129,3 @@ verifyDatabase().catch(async (err) => {
   await closeDatabase().catch(() => {});
   process.exit(1);
 });
-

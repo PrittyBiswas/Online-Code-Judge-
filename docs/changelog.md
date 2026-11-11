@@ -3,6 +3,18 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 5 (2026-11-11)
+
+### Added
+
+- **PostgreSQL Error Mapping & UUID Validation (`apps/api/src/utils/db-error.ts`)**: Added safe translation of PostgreSQL errors (`23505` unique violation, `23503` FK violation, `22P02` invalid syntax, connection errors) to clean `AppError` responses and `isUuid()` checks.
+- **Live PostgreSQL Integration Suite (`apps/api/tests/postgres.integration.test.ts` & `pnpm test:integration`)**: Added end-to-end integration tests against live PostgreSQL covering Users CRUD, Problems CRUD + transaction rollback, Submissions CRUD + status/metrics updates + HTTP API compatibility, with isolated cleanup.
+
+### Changed
+
+- **Migrated Services from `memoryDb` to Drizzle ORM**: Migrated `authService`, `usersService`, `problemsService` (transactional problem + test case creation, ID/slug lookup, filtering/search/cursor pagination, deletion), `submissionsService` (creation, retrieval, user/problem listing, status/verdict/runtime metrics updates), `adminService`, `leaderboardService`, `sse.ts`, and `contestsService` user/submission reads to parameterized PostgreSQL queries via Drizzle ORM.
+- **Unit Test Isolation**: Updated `auth.test.ts`, `problems.test.ts`, and `submissions.test.ts` to mock `src/db/index.js` using in-memory fixtures so unit tests remain fast and offline while integration tests exercise real PostgreSQL.
+
 ## [Unreleased] - Day 4 (2026-11-11)
 
 ### Added

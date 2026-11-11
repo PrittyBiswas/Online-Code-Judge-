@@ -104,3 +104,30 @@ A code judge uses a message queue because compiling and running code takes varia
 5. **Why foreign keys and indexes are important**
    - **Foreign keys** enforce _referential integrity_ at the database level — for example, preventing a submission from referencing a non-existent `problem_id` or `user_id`, and controlling cleanup behavior (`ON DELETE CASCADE` for test cases/submissions, `ON DELETE RESTRICT` to prevent accidentally deleting a user who authored problems).
    - **Indexes** (like B-tree indexes on `problems.slug`, `submissions(user_id, created_at, id)`, and `test_cases(problem_id, index)`) let PostgreSQL locate rows quickly without scanning the entire table as submissions and problems grow.
+
+---
+
+### 11. CRUD, Drizzle Queries, API-to-DB Communication, Parameterized Queries, Transactions & Testing (Day 5)
+
+1. **What CRUD means**
+   **CRUD** stands for the four basic operations performed on persistent data:
+   - **Create**: Adding a new row (e.g., registering a user, creating a problem, submitting code).
+   - **Read**: Fetching one or many rows (e.g., loading a user profile, fetching a problem by slug, listing a user's submissions).
+   - **Update**: Modifying an existing row (e.g., editing a problem's limits, updating a submission status from `QUEUED` to `COMPLETED`).
+   - **Delete**: Removing a row (e.g., removing a problem and cascading its `test_cases`).
+
+2. **How Drizzle ORM performs database operations**
+   Instead of manually building fragile SQL strings, Drizzle exposes type-checked methods mapped directly to your TypeScript schema (`db.select().from(problems).where(...)`, `db.insert(users).values(...).returning()`, `db.update(...).set(...)`, `db.delete(...)`). Under the hood, Drizzle compiles those calls into SQL and sends them over our `pg.Pool` connection in `apps/api/src/db/index.ts`.
+
+3. **How API services communicate with PostgreSQL**
+   When an HTTP request arrives at Express (`routes` -> `controller`), the controller validates input with Zod and calls a **service** (`authService`, `usersService`, `problemsService`, `submissionsService`). The service uses Drizzle's `db` client (backed by a reusable connection pool in PostgreSQL) to execute queries, maps database records cleanly into safe API DTOs (stripping fields like `passwordHash`), and translates Postgres driver errors (like duplicate keys `23505` or bad foreign keys `23503`) into clean HTTP errors via `mapDatabaseError`.
+
+4. **Why parameterized queries are important**
+   Parameterized queries separate **SQL structure** from **user-supplied values** (e.g., `WHERE slug = $1` with parameter `['two-sum']`). Even if an attacker sends `' OR 1=1 --` as a username or search string, PostgreSQL treats it strictly as plain text rather than executable SQL, completely preventing **SQL injection** attacks.
+
+5. **What database transactions do**
+   A **database transaction** (`db.transaction(async (tx) => { ... })`) wraps multiple queries into a single all-or-nothing step. When creating a problem with multiple test cases, if inserting the `test_cases` fails, PostgreSQL automatically **rolls back** the `problems` insert too — guaranteeing you never end up with half-saved, broken records.
+
+6. **The difference between unit tests and integration tests**
+   - **Unit tests** (`pnpm test`) test service rules (like password hashing, validation, cursor logic, and hidden test filtering) fast and offline using mocked database dependencies.
+   - **Integration tests** (`pnpm test:integration`) run against the **real PostgreSQL database** (and real HTTP routes) to prove that SQL queries, transactions, unique constraints, foreign keys, and cleanup actually work end-to-end.

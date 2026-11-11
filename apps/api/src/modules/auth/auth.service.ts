@@ -1,11 +1,13 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
-import { env } from '../../config/env.js';
-import { query, memoryDb } from '../../config/db.js';
-import { registerSchema, LoginInput, Role, ERROR_CODES } from '@judge/shared';
+import { ilike, or } from 'drizzle-orm';
 import { z } from 'zod';
+import { registerSchema, LoginInput, Role, ERROR_CODES } from '@judge/shared';
+import { env } from '../../config/env.js';
+import { db } from '../../db/index.js';
+import { users } from '../../db/schema.js';
 import { AppError } from '../../utils/app-error.js';
+import { mapDatabaseError } from '../../utils/db-error.js';
 import {
   checkLoginLockout,
   recordLoginFailure,
@@ -18,35 +20,55 @@ type RegisterParams = z.input<typeof registerSchema>;
 export class AuthService {
   async register(rawInput: RegisterParams): Promise<{ user: AuthUser; token: string }> {
     const input = registerSchema.parse(rawInput);
-    const existingUser = Array.from(memoryDb.users.values()).find(
-      (u) =>
-        u.username.toLowerCase() === input.username.toLowerCase() ||
-        u.email.toLowerCase() === input.email.toLowerCase()
-    );
 
-    if (existingUser) {
-      throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Username or email already registered', 409);
+    try {
+      const existing = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(or(ilike(users.username, input.username), ilike(users.email, input.email)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        throw new AppError(
+          ERROR_CODES.VALIDATION_ERROR,
+          'Username or email already registered',
+          409
+        );
+      }
+
+      const saltRounds = 10;
+      const passwordHash = await bcrypt.hash(input.password, saltRounds);
+      const role = input.role || Role.USER;
+
+      const [created] = await db
+        .insert(users)
+        .values({
+          username: input.username,
+          email: input.email,
+          passwordHash,
+          role,
+        })
+        .returning({
+          id: users.id,
+          username: users.username,
+          email: users.email,
+          role: users.role,
+        });
+
+      const authUser: AuthUser = {
+        id: created.id,
+        username: created.username,
+        email: created.email,
+        role: created.role as Role,
+      };
+
+      const token = jwt.sign(authUser, env.JWT_SECRET, { expiresIn: '7d' });
+      return { user: authUser, token };
+    } catch (err) {
+      throw mapDatabaseError(err, {
+        uniqueViolation: 'Username or email already registered',
+      });
     }
-
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(input.password, saltRounds);
-    const userId = crypto.randomUUID();
-
-    const role = input.role || Role.USER;
-    await query(
-      'INSERT INTO users (id, username, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
-      [userId, input.username, input.email, passwordHash, role]
-    );
-
-    const authUser: AuthUser = {
-      id: userId,
-      username: input.username,
-      email: input.email,
-      role,
-    };
-
-    const token = jwt.sign(authUser, env.JWT_SECRET, { expiresIn: '7d' });
-    return { user: authUser, token };
   }
 
   async login(input: LoginInput): Promise<{ user: AuthUser; token: string }> {
@@ -62,20 +84,41 @@ export class AuthService {
       );
     }
 
-    // Lookup user by username or email
-    const user = Array.from(memoryDb.users.values()).find(
-      (u) =>
-        u.username.toLowerCase() === identifier.toLowerCase() ||
-        u.email.toLowerCase() === identifier.toLowerCase()
-    );
+    let userRecord:
+      | {
+          id: string;
+          username: string;
+          email: string;
+          passwordHash: string;
+          role: string;
+        }
+      | undefined;
 
-    if (!user) {
+    try {
+      const rows = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          email: users.email,
+          passwordHash: users.passwordHash,
+          role: users.role,
+        })
+        .from(users)
+        .where(or(ilike(users.username, identifier), ilike(users.email, identifier)))
+        .limit(1);
+
+      userRecord = rows[0];
+    } catch (err) {
+      throw mapDatabaseError(err);
+    }
+
+    if (!userRecord) {
       await recordLoginFailure(identifier);
       // Response does NOT reveal whether user exists (AC-ID-02)
       throw new AppError(ERROR_CODES.AUTH_INVALID_CREDENTIALS, 'Invalid username or password', 401);
     }
 
-    const isMatch = await bcrypt.compare(input.password, user.password_hash);
+    const isMatch = await bcrypt.compare(input.password, userRecord.passwordHash);
     if (!isMatch) {
       await recordLoginFailure(identifier);
       throw new AppError(ERROR_CODES.AUTH_INVALID_CREDENTIALS, 'Invalid username or password', 401);
@@ -85,10 +128,10 @@ export class AuthService {
     await clearLoginFailures(identifier);
 
     const authUser: AuthUser = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role as Role,
+      id: userRecord.id,
+      username: userRecord.username,
+      email: userRecord.email,
+      role: userRecord.role as Role,
     };
 
     const token = jwt.sign(authUser, env.JWT_SECRET, { expiresIn: '7d' });
