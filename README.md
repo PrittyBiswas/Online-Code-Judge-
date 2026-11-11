@@ -71,14 +71,32 @@ Copy-Item .env.example .env
 pnpm env:validate
 ```
 
-### 3. Build Shared Package & Check Types
+### 3. Start Local Infrastructure (Day 3)
+
+Start PostgreSQL, Redis, and MinIO (all bound strictly to `127.0.0.1` with persistent named volumes):
+
+```powershell
+docker compose up -d
+docker compose ps
+pnpm infra:verify
+```
+
+Stop infrastructure without deleting persistent volumes:
+
+```powershell
+docker compose down
+```
+
+See [`docs/infrastructure.md`](docs/infrastructure.md) for health checks, volume safety, and troubleshooting.
+
+### 4. Build Shared Package & Check Types
 
 ```powershell
 pnpm build:shared
 pnpm typecheck
 ```
 
-### 4. Start Applications in Development Mode
+### 5. Start Applications in Development Mode
 
 Run the API and Frontend together:
 
@@ -96,7 +114,7 @@ pnpm dev:cron       # Background Scheduler
 pnpm dev:mail       # Local Stub Mail on http://localhost:4005
 ```
 
-### 5. Verify Quality & Tests
+### 6. Verify Quality & Tests
 
 ```powershell
 pnpm lint
@@ -108,27 +126,25 @@ pnpm test
 
 ---
 
-## Day 2 Status: What Is Implemented vs. Postponed
+## Implementation Status
 
-### Implemented (Monorepo Foundation)
+### Day 2 & Day 3 Completed
 
-- pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking.
-- Strict `tsconfig.base.json`, ESLint (TypeScript + React), Prettier, `.editorconfig`, `.gitignore`, `.env.example`.
-- Working Express API (`GET /`, `GET /health/live`, Zod env validation, error-handling middleware).
-- Working React + Vite frontend (`apps/frontend`) with responsive `MainLayout` and **Online Code Judge** home page.
-- Shared `@judge/shared` package imported cleanly by both API and Frontend.
+- pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking, strict `tsconfig.base.json`, ESLint, Prettier, `.editorconfig`, and `.gitignore`.
+- Express API (`GET /`, `GET /health/live`), React + Vite frontend (`apps/frontend`), and shared `@judge/shared` package.
+- Local Docker Compose infrastructure (`postgres`, `redis`, `minio`, idempotent `create-buckets`) with `127.0.0.1`-only port bindings, named volumes, health checks, `REDIS_URL` queue wiring, and `pnpm infra:verify`.
 - Host-run `apps/judge-worker` kept strictly separate from Docker Compose (no mounted Docker socket).
 
-### Intentionally Postponed (Upcoming Days)
+### Intentionally Postponed (Day 4+)
 
-- Live PostgreSQL + Drizzle database migrations and queries.
-- Authentication flows, MinIO test case uploads, BullMQ submission judging, SSE streaming, leaderboards, and contests.
-- Live Docker Compose service orchestration for Day 3+.
+- Live PostgreSQL + Drizzle database migrations and application tables.
+- Authentication flows, MinIO file-upload API endpoints, BullMQ job consumers, SSE streaming, leaderboards, and contests.
 
 ---
 
 ## Documentation
 
+- [`docs/infrastructure.md`](docs/infrastructure.md) — PostgreSQL, Redis, MinIO Compose setup, volumes, health checks & troubleshooting.
 - [`docs/safety.md`](docs/safety.md) — Non-negotiable sandbox security rules & Docker flags.
 - [`docs/learning-notes.md`](docs/learning-notes.md) — Day 1 foundational concept checks.
 - [`docs/project-checklist.md`](docs/project-checklist.md) — Milestone progress tracker.

@@ -1,16 +1,24 @@
 import { Queue } from 'bullmq';
 import { QUEUES } from '@judge/shared';
+import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
 let judgeQueue: Queue | null = null;
 
+export function parseRedisConnectionOptions(redisUrl: string) {
+  const url = new URL(redisUrl);
+  return {
+    host: url.hostname || 'localhost',
+    port: url.port ? Number(url.port) : 6379,
+    ...(url.username ? { username: decodeURIComponent(url.username) } : {}),
+    ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+    maxRetriesPerRequest: null,
+  };
+}
+
 try {
   judgeQueue = new Queue(QUEUES.JUDGE, {
-    connection: {
-      host: 'localhost',
-      port: 6379,
-      maxRetriesPerRequest: null,
-    },
+    connection: parseRedisConnectionOptions(env.REDIS_URL),
     defaultJobOptions: {
       attempts: 3,
       backoff: {

@@ -27,6 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "env:validate": "tsx scripts/verify-environment.ts",
+    "infra:verify": "tsx scripts/verify-infrastructure.ts",
     "dev:services": "docker compose up -d",
     "stop:services": "docker compose down"
   },

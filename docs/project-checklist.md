@@ -24,7 +24,19 @@ This checklist tracks milestone completion across implementation days.
 - [x] Verify `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`, `pnpm test`, `pnpm env:validate`, API dev server, and frontend dev server
 - [x] Update `docs/changelog.md` and `docs/project-checklist.md`
 
-## Day 3+ — Upcoming Milestones (Not Started Yet)
+## Day 3 — Infrastructure Setup (PostgreSQL + Redis + MinIO)
+
+- [x] Configure `postgres` (`postgres:16-alpine`), `redis` (`redis:7-alpine`, AOF enabled), and `minio` (`minio/minio:latest`) in `docker-compose.yml`
+- [x] Bind all published infrastructure ports strictly to `127.0.0.1` (never `0.0.0.0`)
+- [x] Configure persistent named volumes (`postgres_data`, `redis_data`, `minio_data`) and idempotent `create-buckets`
+- [x] Configure non-missing utility health checks (`pg_isready`, `redis-cli ping`, `mc ready local`)
+- [x] Document environment variables in `.env.example`, extend `scripts/verify-environment.ts`, and wire `REDIS_URL` into `apps/api/src/config/queue.ts`
+- [x] Add real connectivity check (`scripts/verify-infrastructure.ts`) and Compose config tests (`apps/api/tests/infrastructure-config.test.ts`)
+- [x] Document setup, volume safety, and operations in `docs/infrastructure.md`, `README.md`, and `docs/changelog.md`
+- [x] Keep `apps/judge-worker` outside Docker Compose and verify zero `docker.sock` exposure
+- [ ] Live container runtime verification via `docker compose up -d && pnpm infra:verify` (pending Docker Desktop daemon start on this host)
+
+## Day 4+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Start and verify PostgreSQL, Redis, and MinIO runtime integration + Drizzle migrations
 - [ ] Complete end-to-end API routes with real database persistence

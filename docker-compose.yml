@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,31 +8,34 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-judge_secret_password}
       POSTGRES_DB: ${POSTGRES_DB:-judge_db}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5433}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-judge_user} -d ${POSTGRES_DB:-judge_db}']
+      test: [ 'CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-judge_user} -d ${POSTGRES_DB:-judge_db}' ]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
     container_name: judge_redis
     restart: unless-stopped
+    command: [ 'redis-server', '--appendonly', 'yes' ]
     ports:
-      - '${REDIS_PORT:-6379}:6379'
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: [ 'CMD', 'redis-cli', 'ping' ]
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 5s
 
   minio:
-    image: minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-11-09T00-00-00Z
     container_name: judge_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -42,29 +43,32 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - '${MINIO_PORT:-9000}:9000'
-      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+      - '127.0.0.1:${MINIO_API_PORT:-${MINIO_PORT:-9000}}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ['CMD-SHELL', 'curl -f http://localhost:9000/minio/health/live || exit 1']
-      interval: 5s
+      test: [ 'CMD', 'silo', 'healthcheck', 'ready' ]
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
-  # Helper service to ensure bucket exists automatically on startup
+  # Create bucket automatically after object storage is ready
   create-buckets:
-    image: minio/mc:latest
+    image: pgsty/mc:RELEASE.2026-11-09T00-00-00Z
     container_name: judge_minio_init
+    restart: 'no'
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
-      mc mb --ignore-existing local/${MINIO_BUCKET_NAME:-judge-testcases};
-      exit 0;
-      "
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-minioadmin}:${MINIO_ROOT_PASSWORD:-minioadmin}@minio:9000
+    entrypoint: [ 'mc' ]
+    command:
+      - mb
+      - --ignore-existing
+      - local/${MINIO_BUCKET:-${MINIO_BUCKET_NAME:-judge-testcases}}
 
 volumes:
   postgres_data:

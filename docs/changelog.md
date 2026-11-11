@@ -3,6 +3,19 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 3 (2026-11-10)
+
+### Added
+
+- **Local Infrastructure Guide (`docs/infrastructure.md`)**: Documented Docker Compose architecture, PostgreSQL/Redis/MinIO configuration, named volumes, health checks, start/stop/restart commands, and troubleshooting.
+- **Connectivity Verification (`scripts/verify-infrastructure.ts` & `pnpm infra:verify`)**: Added real TCP, Redis RESP `PING`, MinIO HTTP API/Console, PostgreSQL `pg_isready`/`psql`, and named-volume verification checks.
+- **Infrastructure Config Tests (`apps/api/tests/infrastructure-config.test.ts`)**: Added Vitest verification for `127.0.0.1` localhost bindings, named volumes, health checks, worker/socket exclusion, and `REDIS_URL` connection parsing.
+
+### Changed
+
+- **Hardened `docker-compose.yml`**: Bound PostgreSQL, Redis, and MinIO ports strictly to `127.0.0.1`; updated MinIO healthcheck to `mc ready local`; enabled Redis `--appendonly yes` persistence; removed obsolete `version` key; supported `MINIO_API_PORT` while preserving existing variables and idempotent `create-buckets` (`minio/mc`).
+- **Environment & API Wiring**: Added `MINIO_API_PORT` to `.env.example`, `apps/api/src/config/env.ts`, and `scripts/verify-environment.ts`; wired `env.REDIS_URL` into `apps/api/src/config/queue.ts`.
+
 ## [Unreleased] - Day 2 (2026-11-10)
 
 ### Added
