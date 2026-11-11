@@ -28,6 +28,10 @@
     "test:watch": "vitest",
     "env:validate": "tsx scripts/verify-environment.ts",
     "infra:verify": "tsx scripts/verify-infrastructure.ts",
+    "db:generate": "pnpm --filter @judge/api db:generate",
+    "db:migrate": "pnpm --filter @judge/api db:migrate",
+    "db:studio": "pnpm --filter @judge/api db:studio",
+    "db:verify": "pnpm --filter @judge/api db:verify",
     "dev:services": "docker compose up -d",
     "stop:services": "docker compose down"
   },

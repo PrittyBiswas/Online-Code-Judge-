@@ -3,6 +3,15 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 4 (2026-11-11)
+
+### Added
+
+- **Drizzle ORM & PostgreSQL Integration (`apps/api/src/db/`)**: Added `drizzle-orm`, `pg`, `@types/pg`, and `drizzle-kit` in `@judge/api`; configured `pg.Pool` connection (`apps/api/src/db/index.ts`) and `apps/api/drizzle.config.ts`.
+- **Initial Core Schema (`apps/api/src/db/schema.ts`)**: Defined PostgreSQL tables (`users`, `problems`, `test_cases`, `submissions`), primary keys, foreign keys (`ON DELETE RESTRICT` / `ON DELETE CASCADE`), unique constraints, timestamps, relations, and B-tree indexes.
+- **Database Migrations & Verification (`drizzle/migrations/`, `apps/api/src/db/verify.ts`)**: Generated and applied initial migration `0000_new_millenium_guard.sql`, archived Day 1 hand-written SQL draft to `drizzle/reference/0000_initial_schema.sql`, wired `isDatabaseHealthy()` and graceful `closeDatabase()` shutdown, and added `db:generate`, `db:migrate`, `db:studio`, and `db:verify` scripts plus `apps/api/tests/db-schema.test.ts`.
+- **Documentation**: Updated `docs/learning-notes.md` with beginner-friendly explanations of Drizzle ORM, ORMs, schemas, migrations, foreign keys, and indexes; updated `README.md`, `apps/api/README.md`, and `docs/project-checklist.md`.
+
 ## [Unreleased] - Day 3 (2026-11-10)
 
 ### Added

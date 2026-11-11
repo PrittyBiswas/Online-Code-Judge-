@@ -11,6 +11,25 @@ for (const envPath of envCandidates) {
   }
 }
 
+function deriveDatabaseUrl(raw: NodeJS.ProcessEnv): string | undefined {
+  if (raw.DATABASE_URL) return raw.DATABASE_URL;
+  if (
+    !raw.POSTGRES_USER &&
+    !raw.POSTGRES_PASSWORD &&
+    !raw.POSTGRES_HOST &&
+    !raw.POSTGRES_PORT &&
+    !raw.POSTGRES_DB
+  ) {
+    return undefined;
+  }
+  const user = encodeURIComponent(raw.POSTGRES_USER || 'judge_user');
+  const password = encodeURIComponent(raw.POSTGRES_PASSWORD || 'judge_secret_password');
+  const host = raw.POSTGRES_HOST || 'localhost';
+  const port = raw.POSTGRES_PORT || '5432';
+  const db = encodeURIComponent(raw.POSTGRES_DB || 'judge_db');
+  return `postgresql://${user}:${password}@${host}:${port}/${db}`;
+}
+
 function deriveRedisUrl(raw: NodeJS.ProcessEnv): string | undefined {
   if (raw.REDIS_URL) return raw.REDIS_URL;
   if (!raw.REDIS_HOST && !raw.REDIS_PORT && !raw.REDIS_PASSWORD) return undefined;
@@ -45,6 +64,7 @@ const envSchema = z.object({
 
 const parsed = envSchema.parse({
   ...process.env,
+  DATABASE_URL: deriveDatabaseUrl(process.env),
   REDIS_URL: deriveRedisUrl(process.env),
 });
 

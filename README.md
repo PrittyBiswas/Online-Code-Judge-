@@ -89,14 +89,29 @@ docker compose down
 
 See [`docs/infrastructure.md`](docs/infrastructure.md) for health checks, volume safety, and troubleshooting.
 
-### 4. Build Shared Package & Check Types
+### 4. Configure Database & Apply Drizzle Migrations (Day 4)
+
+Ensure `DATABASE_URL` in `.env` matches `POSTGRES_PORT` (for example `5433` if PostgreSQL runs on port `5433`), then run migrations and verify live PostgreSQL read/write checks:
+
+```powershell
+pnpm db:migrate
+pnpm db:verify
+```
+
+When modifying `apps/api/src/db/schema.ts`, generate a new migration first:
+
+```powershell
+pnpm db:generate
+```
+
+### 5. Build Shared Package & Check Types
 
 ```powershell
 pnpm build:shared
 pnpm typecheck
 ```
 
-### 5. Start Applications in Development Mode
+### 6. Start Applications in Development Mode
 
 Run the API and Frontend together:
 
@@ -114,7 +129,7 @@ pnpm dev:cron       # Background Scheduler
 pnpm dev:mail       # Local Stub Mail on http://localhost:4005
 ```
 
-### 6. Verify Quality & Tests
+### 7. Verify Quality & Tests
 
 ```powershell
 pnpm lint
@@ -128,17 +143,18 @@ pnpm test
 
 ## Implementation Status
 
-### Day 2 & Day 3 Completed
+### Day 2, Day 3 & Day 4 Completed
 
 - pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking, strict `tsconfig.base.json`, ESLint, Prettier, `.editorconfig`, and `.gitignore`.
 - Express API (`GET /`, `GET /health/live`), React + Vite frontend (`apps/frontend`), and shared `@judge/shared` package.
 - Local Docker Compose infrastructure (`postgres`, `redis`, `minio`, idempotent `create-buckets`) with `127.0.0.1`-only port bindings, named volumes, health checks, `REDIS_URL` queue wiring, and `pnpm infra:verify`.
+- Drizzle ORM + `pg` PostgreSQL integration (`apps/api/src/db/`), initial core schema (`users`, `problems`, `test_cases`, `submissions`), Drizzle Kit migration generation/execution (`drizzle/migrations/`), and live DB verification (`pnpm db:verify`).
 - Host-run `apps/judge-worker` kept strictly separate from Docker Compose (no mounted Docker socket).
 
-### Intentionally Postponed (Day 4+)
+### Intentionally Postponed (Day 5+)
 
-- Live PostgreSQL + Drizzle database migrations and application tables.
-- Authentication flows, MinIO file-upload API endpoints, BullMQ job consumers, SSE streaming, leaderboards, and contests.
+- Wiring feature API routes (`auth`, `problems`, `submissions`, `leaderboard`, `contests`) to live PostgreSQL/MinIO/BullMQ persistence.
+- Judge sandbox execution, SSE streaming, leaderboards, and contests.
 
 ---
 

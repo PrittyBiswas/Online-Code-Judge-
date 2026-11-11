@@ -1,4 +1,5 @@
 import { UserRow, ProblemRow, TestCaseRow, SubmissionRow, ContestRow } from '../types/db.js';
+import { checkDatabaseConnection } from '../db/index.js';
 
 interface QueryResult<T = any> {
   rows: T[];
@@ -104,6 +105,5 @@ function executeMockSql<T>(sql: string, params: any[]): QueryResult<T> {
 }
 
 export async function isDatabaseHealthy(): Promise<boolean> {
-  // Returns true if DB is accessible
-  return true;
+  return checkDatabaseConnection();
 }

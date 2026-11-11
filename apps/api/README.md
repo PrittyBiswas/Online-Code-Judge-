@@ -7,6 +7,7 @@ Express + TypeScript REST API and Server-Sent Events (SSE) backend for the Onlin
 ```
 src/
 ├── config/       # Zod environment validation, DB/Redis/MinIO/Queue config
+├── db/           # Drizzle ORM schema, pg Pool connection, live DB verify script
 ├── events/       # Server-Sent Events (SSE) stream & Redis Pub/Sub wiring
 ├── middleware/   # Auth, RBAC, rate limiters, request logging, error handler
 ├── modules/      # Feature modules (auth, users, problems, submissions, etc.)
@@ -26,6 +27,9 @@ From the repository root (PowerShell):
 pnpm dev:api
 pnpm --filter @judge/api typecheck
 pnpm --filter @judge/api build
+pnpm db:generate
+pnpm db:migrate
+pnpm db:verify
 ```
 
 ## Endpoints Verified for Day 2

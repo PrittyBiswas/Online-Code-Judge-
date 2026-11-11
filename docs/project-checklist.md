@@ -34,11 +34,19 @@ This checklist tracks milestone completion across implementation days.
 - [x] Add real connectivity check (`scripts/verify-infrastructure.ts`) and Compose config tests (`apps/api/tests/infrastructure-config.test.ts`)
 - [x] Document setup, volume safety, and operations in `docs/infrastructure.md`, `README.md`, and `docs/changelog.md`
 - [x] Keep `apps/judge-worker` outside Docker Compose and verify zero `docker.sock` exposure
-- [ ] Live container runtime verification via `docker compose up -d && pnpm infra:verify` (pending Docker Desktop daemon start on this host)
+- [x] Live container runtime verification via `docker compose up -d && pnpm infra:verify`
 
-## Day 4+ — Upcoming Milestones (Not Started Yet)
+## Day 4 — PostgreSQL Integration and Drizzle ORM Setup
 
-- [ ] Start and verify PostgreSQL, Redis, and MinIO runtime integration + Drizzle migrations
+- [x] Install `drizzle-orm`, `pg`, `@types/pg`, and `drizzle-kit` in `apps/api`
+- [x] Configure Drizzle connection (`apps/api/src/db/index.ts`), Drizzle Kit (`apps/api/drizzle.config.ts`), and `DATABASE_URL` env derivation
+- [x] Define initial core schema (`users`, `problems`, `test_cases`, `submissions`) with keys, constraints, timestamps, and indexes in `apps/api/src/db/schema.ts`
+- [x] Generate (`pnpm db:generate`) and apply (`pnpm db:migrate`) initial SQL migration (`drizzle/migrations/0000_new_millenium_guard.sql`)
+- [x] Verify live DB connection, schema tables, insert/read, and foreign key enforcement (`pnpm db:verify`)
+- [x] Update `docs/learning-notes.md`, `README.md`, `apps/api/README.md`, and `docs/changelog.md`
+
+## Day 5+ — Upcoming Milestones (Not Started Yet)
+
 - [ ] Complete end-to-end API routes with real database persistence
 - [ ] Wire BullMQ submission queue to `apps/judge-worker` Docker sandbox execution
 - [ ] Build Monaco Editor code submission workflow in `apps/frontend`

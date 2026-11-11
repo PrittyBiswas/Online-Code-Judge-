@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ 'CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-judge_user} -d ${POSTGRES_DB:-judge_db}' ]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-judge_user} -d ${POSTGRES_DB:-judge_db}']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,13 +22,13 @@ services:
     image: redis:7-alpine
     container_name: judge_redis
     restart: unless-stopped
-    command: [ 'redis-server', '--appendonly', 'yes' ]
+    command: ['redis-server', '--appendonly', 'yes']
     ports:
       - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ 'CMD', 'redis-cli', 'ping' ]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -48,7 +48,7 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: [ 'CMD', 'silo', 'healthcheck', 'ready' ]
+      test: ['CMD', 'silo', 'healthcheck', 'ready']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,7 +64,7 @@ services:
         condition: service_healthy
     environment:
       MC_HOST_local: http://${MINIO_ROOT_USER:-minioadmin}:${MINIO_ROOT_PASSWORD:-minioadmin}@minio:9000
-    entrypoint: [ 'mc' ]
+    entrypoint: ['mc']
     command:
       - mb
       - --ignore-existing

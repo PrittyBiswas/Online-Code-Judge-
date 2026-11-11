@@ -1,5 +1,6 @@
 import { app } from './app.js';
 import { env } from './config/env.js';
+import { closeDatabase } from './db/index.js';
 import { logger } from './utils/logger.js';
 
 const server = app.listen(env.PORT, () => {
@@ -8,7 +9,12 @@ const server = app.listen(env.PORT, () => {
 
 function gracefulShutdown(signal: string) {
   logger.info({ signal }, 'Received shutdown signal. Closing HTTP server gracefully...');
-  server.close(() => {
+  server.close(async () => {
+    try {
+      await closeDatabase();
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, 'Failed to close PostgreSQL pool cleanly');
+    }
     logger.info('HTTP server closed. Exiting process.');
     process.exit(0);
   });

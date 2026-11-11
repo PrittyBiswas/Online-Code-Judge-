@@ -82,3 +82,25 @@ A code judge uses a message queue because compiling and running code takes varia
   - _Short/Long Polling_: Client repeatedly opens new HTTP requests every second to ask "is it done yet?", generating massive network overhead and server load.
   - _WebSockets_: Full-duplex (bidirectional) connection using a custom protocol (`ws://`). More complex to manage through firewalls and proxies, and unnecessary when data only flows one way (from judge to browser).
   - _SSE Advantage_: Unidirectional, runs over standard HTTP, natively handles automatic reconnection, and works out of the box with browser `EventSource`.
+
+---
+
+### 10. Drizzle ORM, Schemas, Migrations, Foreign Keys & Indexes (Day 4)
+
+1. **What Drizzle ORM is**
+   **Drizzle ORM** is a lightweight, TypeScript-first SQL toolkit and Object-Relational Mapper. Instead of writing raw string SQL queries manually or generating heavy runtime classes, you define your PostgreSQL tables directly in TypeScript (`apps/api/src/db/schema.ts`), and Drizzle gives you type-checked query builders (`db.select()`, `db.insert()`, `db.delete()`) plus `drizzle-kit` for generating SQL migrations.
+
+2. **Why an ORM is useful**
+   - **Compile-time safety**: If you misspell a column name or pass a string where PostgreSQL expects a number, TypeScript catches the bug before the server even starts.
+   - **Parameterized queries**: Drizzle automatically binds user values safely as SQL parameters, preventing SQL injection vulnerabilities.
+   - **Cleaner mapping**: Database rows map directly into strongly typed TypeScript records without boilerplate parsing.
+
+3. **What a database schema is**
+   A **database schema** is the formal blueprint of your database structure: which tables exist (`users`, `problems`, `test_cases`, `submissions`), what columns and data types each table holds (`uuid`, `varchar`, `integer`, `timestamptz`), which values are required (`NOT NULL`) or unique (`UNIQUE`), and how tables relate to one another.
+
+4. **What database migrations are**
+   A **database migration** is a versioned, repeatable SQL script (stored in `drizzle/migrations/`) that evolves a database from one schema state to the next without losing existing data. `drizzle-kit generate` compares your TypeScript schema against previous snapshots to create the next SQL file, and `drizzle-kit migrate` records and runs unapplied migrations in PostgreSQL (`drizzle.__drizzle_migrations`).
+
+5. **Why foreign keys and indexes are important**
+   - **Foreign keys** enforce _referential integrity_ at the database level — for example, preventing a submission from referencing a non-existent `problem_id` or `user_id`, and controlling cleanup behavior (`ON DELETE CASCADE` for test cases/submissions, `ON DELETE RESTRICT` to prevent accidentally deleting a user who authored problems).
+   - **Indexes** (like B-tree indexes on `problems.slug`, `submissions(user_id, created_at, id)`, and `test_cases(problem_id, index)`) let PostgreSQL locate rows quickly without scanning the entire table as submissions and problems grow.
