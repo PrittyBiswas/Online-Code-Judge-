@@ -64,9 +64,17 @@ This checklist tracks milestone completion across implementation days.
 - [x] Add worker unit tests (`tests/worker-unit.test.ts`) and live Docker + BullMQ + Postgres + Silo integration tests (`tests/worker.integration.test.ts`)
 - [x] Update `apps/judge-worker/README.md`, `README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
 
-## Day 7+ — Upcoming Milestones (Not Started Yet)
+## Day 7 — Judge Worker Reliability, Recovery & Failure Handling
+
+- [x] Implement `SubmissionRecoveryService` (`apps/judge-worker/src/recovery/recoveryService.ts`) with age threshold (`RECOVERY_STALE_MS`), active BullMQ job protection, max-attempt `INTERNAL_ERROR` finalization, and orphan container pruning
+- [x] Implement optimistic CAS claiming (`claimSubmissionRunning`), duplicate Attempt 1 rejection, and retryable `RUNNING -> QUEUED` release (`releaseSubmissionToQueued`) in `apps/judge-worker/src/processor/judgeProcessor.ts`
+- [x] Configure BullMQ lock duration, stalled job interval/threshold, and failure classification (`PermanentWorkerError` vs `RetryableWorkerError`) in `apps/judge-worker/src/queue/worker.ts` & `src/utils/errors.ts`
+- [x] Harden Docker sandbox daemon/startup failure classification (`125`/`126`/`127`) and container cleanup logging (`src/sandbox/runner.ts`, `src/recovery/shutdown.ts`)
+- [x] Expand unit tests (`worker-unit.test.ts`) and live integration tests (`worker.integration.test.ts`) covering recovery, concurrent claims, error classification, output/memory limits, and container cleanup
+- [x] Update `apps/judge-worker/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
+
+## Day 8+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs
-- [ ] Build Monaco Editor code submission workflow in `apps/frontend`
 - [ ] End-to-end attack-suite security verification

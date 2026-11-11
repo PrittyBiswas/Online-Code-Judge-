@@ -31,6 +31,7 @@ export class Executor {
     let failedTestIndex: number | undefined = undefined;
     let maxExecutionTimeMs = 0;
     let maxMemoryUsedKb = 0;
+    let infraFailureCategory: EvaluatedSubmission['infraFailureCategory'];
 
     for (const tc of testCases) {
       const sandboxResult = await this.sandboxRunner({
@@ -57,6 +58,7 @@ export class Executor {
       if (testResult.verdict !== Verdict.ACCEPTED) {
         finalVerdict = testResult.verdict;
         failedTestIndex = tc.index;
+        infraFailureCategory = sandboxResult.infraFailureCategory;
         break;
       }
     }
@@ -67,6 +69,7 @@ export class Executor {
       results,
       maxExecutionTimeMs,
       maxMemoryUsedKb,
+      infraFailureCategory,
     };
   }
 }

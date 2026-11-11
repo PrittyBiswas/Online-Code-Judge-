@@ -1,5 +1,6 @@
 import { Verdict, TestCaseResult, compareOutputs } from '@judge/shared';
 import { SandboxExecutionResult } from '../sandbox/runner.js';
+import type { WorkerFailureCategory } from '../utils/errors.js';
 
 export interface EvaluatedSubmission {
   finalVerdict: Verdict;
@@ -7,6 +8,7 @@ export interface EvaluatedSubmission {
   results: TestCaseResult[];
   maxExecutionTimeMs: number;
   maxMemoryUsedKb: number;
+  infraFailureCategory?: WorkerFailureCategory;
 }
 
 export class Evaluator {

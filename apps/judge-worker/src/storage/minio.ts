@@ -103,4 +103,3 @@ export class WorkerObjectStorage {
 }
 
 export const workerStorage = new WorkerObjectStorage();
-

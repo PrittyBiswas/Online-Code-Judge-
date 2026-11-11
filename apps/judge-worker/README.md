@@ -6,30 +6,37 @@ Host-run background worker that consumes queued coding submissions from BullMQ (
 
 ## Architecture & Execution Flow
 
-1. **BullMQ Consumer (`src/queue/worker.ts`)**: Connects to Redis (`REDIS_URL`), consumes jobs from `judge-queue` with configurable concurrency (`WORKER_CONCURRENCY`, default `2`), exponential backoff retries, and clean `SIGTERM`/`SIGINT` shutdown.
-2. **Idempotent Job Processor (`src/processor/judgeProcessor.ts`)**:
-   - Validates `submissionId` (rejects malformed/missing IDs with `UnrecoverableError`).
-   - Skips already-`COMPLETED` submissions to prevent duplicate processing.
-   - Atomically transitions `QUEUED -> RUNNING`, increments `retry_count`, and publishes a `RUNNING` SSE event.
+1. **BullMQ Consumer (`src/queue/worker.ts`)**: Connects to Redis (`REDIS_URL`), consumes jobs from `judge-queue` with configurable concurrency (`WORKER_CONCURRENCY`, default `2`), explicit stalled-job monitoring (`WORKER_LOCK_DURATION_MS`, `WORKER_STALLED_INTERVAL_MS`, `WORKER_MAX_STALLED_COUNT`), exponential backoff retries (`WORKER_MAX_ATTEMPTS`), and clean `SIGTERM`/`SIGINT` shutdown (`closeDatabase`, `closeQueue`, container cleanup, sweeper shutdown).
+2. **Reliability & Stale Recovery (`src/recovery/recoveryService.ts`, `src/utils/errors.ts`)**:
+   - Periodic sweeper runs at startup and on `RECOVERY_INTERVAL_MS` to detect abandoned `RUNNING` submissions whose `updated_at` exceeds `RECOVERY_STALE_MS` (default `120000` ms).
+   - Never touches actively running BullMQ jobs (`queue.getJob(id).isActive()`) or recently started `RUNNING` submissions.
+   - Uses optimistic compare-and-swap (`WHERE status = 'RUNNING' AND updated_at = expectedUpdatedAt`) so multiple worker instances cannot double-recover or double-claim a submission.
+   - Re-enqueues recoverable submissions back into `judge-queue` when `retry_count < WORKER_MAX_ATTEMPTS`, or finalizes exhausted submissions permanently as `INTERNAL_ERROR` and broadcasts the SSE terminal event.
+   - Prunes orphaned `judge-sandbox-*` Docker containers not belonging to any active tracked worker execution.
+3. **Idempotent Job Processor (`src/processor/judgeProcessor.ts`)**:
+   - Validates `submissionId` and rejects permanent data/config failures (`INVALID_JOB_DATA`, `SUBMISSION_NOT_FOUND`, `PROBLEM_NOT_FOUND`, `UNSUPPORTED_LANGUAGE`, `MISSING_TEST_CASES`, `MISSING_TEST_CASE_OBJECT`) via `PermanentWorkerError` (`UnrecoverableError`) without retries.
+   - Rejects duplicate Attempt 1 deliveries when status is already `RUNNING` or `COMPLETED`, and acquires execution locks via optimistic CAS (`claimSubmissionRunning`).
    - Loads problem metadata and ordered `test_cases` from PostgreSQL, then fetches input/expected output files from MinIO/Silo using AWS Signature V4 (`src/storage/minio.ts`).
-3. **Isolated Sandbox Execution (`src/sandbox/runner.ts`, `src/executor/executor.ts`)**:
+   - Releases `RUNNING -> QUEUED` cleanly on retryable transient failures (`DOCKER_DAEMON_UNAVAILABLE`, `SANDBOX_CONTAINER_START_FAILED`, `OBJECT_STORAGE_TRANSIENT_ERROR`, `DATABASE_TRANSIENT_ERROR`) so retries or recovery can re-claim without waiting for stale expiration.
+   - Logs structured observability fields (`submissionId`, `jobId`, `durationMs`, `retryAttempt`, `failureCategory`, `finalVerdict`) without logging source code, hidden tests, or credentials.
+4. **Isolated Sandbox Execution (`src/sandbox/runner.ts`, `src/executor/executor.ts`)**:
    - Runs each test case in a fresh disposable container (`--rm`, `--network none`, `--memory`, `--memory-swap`, `--cpus`, `--pids-limit`, `--read-only`, `--tmpfs /tmp:rw,noexec,nosuid,size=16m`, `--cap-drop ALL`, `--security-opt no-new-privileges`, `--user 1000:1000`).
    - Sends `{ code, input }` over piped `stdin` (`-i`) — never via host bind mounts or shell strings.
-   - Enforces a pre-execution syntax/compilation check (`COMPILATION_ERROR`), external host wall-clock timeout (`TIME_LIMIT_EXCEEDED`), cumulative stdout/stderr byte cap (`OUTPUT_LIMIT_EXCEEDED`), and OOM detection (`MEMORY_LIMIT_EXCEEDED`), while recording execution time and peak memory usage (`memoryUsedKb`).
+   - Enforces a pre-execution syntax/compilation check (`COMPILATION_ERROR`), compilation wall-clock timeout, external execution timeout (`TIME_LIMIT_EXCEEDED`), cumulative stdout/stderr byte cap (`OUTPUT_LIMIT_EXCEEDED`), OOM detection (`MEMORY_LIMIT_EXCEEDED`), and explicit Docker daemon / container-startup error detection (exit codes `125`/`126`/`127` / daemon offline -> retryable infra failure instead of silent `RUNTIME_ERROR`).
    - Awaits forced container removal (`docker rm -f`) so no stale sandbox containers leak after failure or timeout.
-4. **Evaluation & Persistence (`src/evaluator/evaluator.ts`, `src/verdicts/handler.ts`)**:
+5. **Evaluation & Persistence (`src/evaluator/evaluator.ts`, `src/verdicts/handler.ts`)**:
    - Compares stdout against expected output using `compareOutputs()` (CRLF->LF normalization + trailing whitespace/blank-line trimming).
    - Stops early on the first non-`ACCEPTED` test case and records `failedTestIndex` without exposing hidden test contents.
-   - Persists final `status = 'COMPLETED'`, `verdict`, `executionTimeMs`, `memoryUsedKb`, and `failedTestIndex` conditionally (`WHERE status IN ('QUEUED', 'RUNNING')`), then broadcasts the SSE update and updates the global leaderboard on first `ACCEPTED` solve.
+   - Persists final `status = 'COMPLETED'`, `verdict`, `executionTimeMs`, `memoryUsedKb`, and `failedTestIndex` conditionally (`WHERE status IN ('QUEUED', 'RUNNING')`), then broadcasts the SSE update and updates the global leaderboard on first `ACCEPTED` solve. Database persistence failures propagate and never falsely succeed or broadcast SSE updates.
 
 ---
 
 ## Supported Languages
 
-| Language     | Docker Image (`env` configurable) | Syntax / Compile Check                        | Execution                     |
-| :----------- | :-------------------------------- | :-------------------------------------------- | :---------------------------- |
-| `javascript` | `node:20-alpine`                  | `new Function('require', code)`               | Node.js 20 (`node -e`)        |
-| `python`     | `python:3.11-alpine`              | `compile(code, '<submission>', 'exec')`       | Python 3 (`python3 -I -c`)    |
+| Language     | Docker Image (`env` configurable) | Syntax / Compile Check                  | Execution                  |
+| :----------- | :-------------------------------- | :-------------------------------------- | :------------------------- |
+| `javascript` | `node:20-alpine`                  | `new Function('require', code)`         | Node.js 20 (`node -e`)     |
+| `python`     | `python:3.11-alpine`              | `compile(code, '<submission>', 'exec')` | Python 3 (`python3 -I -c`) |
 
 ---
 
@@ -48,7 +55,22 @@ Uses root `.env` (see [`.env.example`](../../.env.example)):
 - `DATABASE_URL` (or `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`)
 - `REDIS_URL` (or `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`)
 - `MINIO_ENDPOINT`, `MINIO_PORT` / `MINIO_API_PORT`, `MINIO_ROOT_USER` / `MINIO_ACCESS_KEY`, `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY`, `MINIO_BUCKET_NAME`
-- Worker & sandbox defaults: `WORKER_CONCURRENCY`, `SANDBOX_TIMEOUT_MS`, `SANDBOX_MEMORY_LIMIT_MB`, `SANDBOX_CPUS`, `SANDBOX_PIDS_LIMIT`, `SANDBOX_OUTPUT_LIMIT_BYTES`, `SANDBOX_DOCKER_IMAGE`, `SANDBOX_PYTHON_IMAGE`
+- Worker & sandbox defaults: `WORKER_CONCURRENCY`, `WORKER_LOCK_DURATION_MS`, `WORKER_STALLED_INTERVAL_MS`, `WORKER_MAX_STALLED_COUNT`, `WORKER_MAX_ATTEMPTS`, `RECOVERY_STALE_MS`, `RECOVERY_INTERVAL_MS`, `SANDBOX_TIMEOUT_MS`, `SANDBOX_MEMORY_LIMIT_MB`, `SANDBOX_CPUS`, `SANDBOX_PIDS_LIMIT`, `SANDBOX_OUTPUT_LIMIT_BYTES`, `SANDBOX_DOCKER_IMAGE`, `SANDBOX_PYTHON_IMAGE`
+
+---
+
+## Troubleshooting & Recovery Verification
+
+```powershell
+# Check for any leftover sandbox containers
+docker ps -a --filter "name=judge-sandbox-"
+
+# Inspect Postgres submission state distribution
+docker exec judge_postgres psql -U judge_user -d judge_db -c "SELECT status, verdict, retry_count, count(*) FROM submissions GROUP BY status, verdict, retry_count;"
+
+# Inspect Redis queue & infrastructure health
+pnpm infra:verify
+```
 
 ---
 
@@ -70,4 +92,3 @@ pnpm --filter @judge/worker test              # Offline unit tests
 pnpm --filter @judge/worker test:integration  # Live Docker + BullMQ + Postgres + Silo tests
 pnpm --filter @judge/worker test:sandbox      # Attack-suite verification script
 ```
-

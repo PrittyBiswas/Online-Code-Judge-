@@ -58,6 +58,12 @@ const envSchema = z.object({
   MINIO_BUCKET_NAME: z.string().default('judge-testcases'),
   MINIO_USE_SSL: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(false),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  WORKER_LOCK_DURATION_MS: z.coerce.number().int().min(5000).max(300000).default(30000),
+  WORKER_STALLED_INTERVAL_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
+  WORKER_MAX_STALLED_COUNT: z.coerce.number().int().min(1).max(10).default(2),
+  WORKER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  RECOVERY_STALE_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
+  RECOVERY_INTERVAL_MS: z.coerce.number().int().min(1000).max(600000).default(30000),
   SANDBOX_TIMEOUT_MS: z.coerce.number().int().min(200).max(30000).default(2000),
   SANDBOX_MEMORY_LIMIT_MB: z.coerce.number().int().min(32).max(1024).default(128),
   SANDBOX_CPUS: z.string().default('0.5'),
@@ -80,4 +86,3 @@ export const workerEnv = {
   MINIO_SECRET_KEY: parsed.MINIO_SECRET_KEY || parsed.MINIO_ROOT_PASSWORD,
   MINIO_BUCKET_NAME: parsed.MINIO_BUCKET || parsed.MINIO_BUCKET_NAME,
 };
-

@@ -3,6 +3,19 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 7 (2026-11-11)
+
+### Added
+
+- **Stale `RUNNING` Recovery & Orphan Pruning (`apps/judge-worker/src/recovery/recoveryService.ts`, `shutdown.ts`)**: Added `SubmissionRecoveryService` sweeper that skips active BullMQ jobs and fresh `RUNNING` submissions, uses optimistic CAS (`WHERE status = 'RUNNING' AND updated_at = ...`) to safely re-enqueue stale rows up to `WORKER_MAX_ATTEMPTS`, finalizes exhausted rows as `INTERNAL_ERROR` with SSE events, and prunes orphaned `judge-sandbox-*` containers.
+- **Error Classification & Reliability Config (`apps/judge-worker/src/utils/errors.ts`, `src/config/env.ts`)**: Added `PermanentWorkerError` (`UnrecoverableError`) vs `RetryableWorkerError`, `classifyWorkerError()`, and BullMQ lock/stalled/recovery settings (`WORKER_LOCK_DURATION_MS`, `WORKER_STALLED_INTERVAL_MS`, `WORKER_MAX_STALLED_COUNT`, `WORKER_MAX_ATTEMPTS`, `RECOVERY_STALE_MS`, `RECOVERY_INTERVAL_MS`).
+- **Day 7 Reliability Unit & Integration Tests (`apps/judge-worker/tests/`)**: Added unit tests for recovery sweeps, duplicate attempt-1 claim rejection, CAS race skips, error classification, DB failure non-masking, and live Docker/Postgres/BullMQ integration tests for output/memory limits, concurrent claim safety, and stale `RUNNING` recovery.
+
+### Changed
+
+- **Atomic Submission Claiming & Failure Release (`apps/judge-worker/src/processor/judgeProcessor.ts`, `src/queue/worker.ts`)**: Replaced loose claiming with optimistic CAS (`expectedStatus`, `expectedUpdatedAt`), duplicate Attempt 1 `RUNNING` rejection, `releaseSubmissionToQueued()` on retryable infra/DB errors, BullMQ stalled-job logging, and structured observability logs (`submissionId`, `jobId`, `durationMs`, `retryAttempt`, `failureCategory`, `finalVerdict`).
+- **Sandbox Infra Error Separation (`apps/judge-worker/src/sandbox/runner.ts`, `src/executor/executor.ts`, `src/evaluator/evaluator.ts`)**: Distinguished Docker daemon unavailable and container startup errors (`125`/`126`/`127`) as retryable infra failures (`infraFailureCategory`) instead of falsely reporting `RUNTIME_ERROR`.
+
 ## [Unreleased] - Day 6 (2026-11-11)
 
 ### Added

@@ -50,4 +50,3 @@ export const submissions = pgTable('submissions', {
 export type ProblemRow = typeof problems.$inferSelect;
 export type TestCaseRow = typeof testCases.$inferSelect;
 export type SubmissionRow = typeof submissions.$inferSelect;
-

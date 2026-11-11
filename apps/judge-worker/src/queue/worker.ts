@@ -1,11 +1,13 @@
-import { Worker, UnrecoverableError } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import pino from 'pino';
 import { QUEUES, SubmissionJobData, Verdict } from '@judge/shared';
 import { workerEnv } from '../config/env.js';
 import { closeDatabase } from '../db/index.js';
 import { workerLifecycle } from '../recovery/shutdown.js';
+import { SubmissionRecoveryService } from '../recovery/recoveryService.js';
 import { DrizzleJudgeRepository, processSubmissionJob } from '../processor/judgeProcessor.js';
+import { classifyWorkerError } from '../utils/errors.js';
 
 const logger = pino({ level: workerEnv.LOG_LEVEL, base: { service: 'judge-worker-queue' } });
 
@@ -22,26 +24,51 @@ export function parseRedisConnectionOptions(redisUrl: string) {
 
 export interface RunningJudgeWorker {
   worker: Worker<SubmissionJobData>;
+  queue: Queue<SubmissionJobData>;
   redisPublisher: Redis;
+  recoveryService: SubmissionRecoveryService;
   stop: () => Promise<void>;
 }
 
-export async function startJudgeWorker(): Promise<RunningJudgeWorker> {
+export async function startJudgeWorker(options?: {
+  enableSweeper?: boolean;
+}): Promise<RunningJudgeWorker> {
   const connection = parseRedisConnectionOptions(workerEnv.REDIS_URL);
   const redisPublisher = new Redis(workerEnv.REDIS_URL, {
     maxRetriesPerRequest: null,
     lazyConnect: true,
+    retryStrategy: (times) => Math.min(times * 250, 3000),
   });
 
   redisPublisher.on('error', (err) => {
-    logger.warn({ err: err.message }, 'Judge worker Redis publisher error');
+    logger.warn(
+      { failureCategory: 'REDIS_TRANSIENT_ERROR', err: err.message },
+      'Judge worker Redis publisher connection error'
+    );
   });
 
   await redisPublisher.connect().catch((err) => {
-    logger.warn({ err: err?.message }, 'Initial Redis publisher connection delayed');
+    logger.warn(
+      { failureCategory: 'REDIS_TRANSIENT_ERROR', err: err?.message },
+      'Initial Redis publisher connection delayed'
+    );
   });
 
   const repository = new DrizzleJudgeRepository();
+  const queue = new Queue<SubmissionJobData>(QUEUES.JUDGE, { connection });
+  queue.on('error', (err) => {
+    logger.warn(
+      { failureCategory: 'REDIS_TRANSIENT_ERROR', err: err.message },
+      'Judge queue connection error'
+    );
+  });
+
+  const recoveryService = new SubmissionRecoveryService(
+    repository,
+    queue,
+    workerLifecycle,
+    redisPublisher
+  );
 
   const worker = new Worker<SubmissionJobData>(
     QUEUES.JUDGE,
@@ -49,40 +76,61 @@ export async function startJudgeWorker(): Promise<RunningJudgeWorker> {
       return processSubmissionJob(job.data, {
         repository,
         redisPublisher,
+        context: {
+          jobId: job.id,
+          attemptNumber: job.attemptsMade + 1,
+          allowRetryReclaim: job.attemptsMade > 0,
+        },
       });
     },
     {
       connection,
       concurrency: workerEnv.WORKER_CONCURRENCY,
-      lockDuration: 30000,
+      lockDuration: workerEnv.WORKER_LOCK_DURATION_MS,
+      stalledInterval: workerEnv.WORKER_STALLED_INTERVAL_MS,
+      maxStalledCount: workerEnv.WORKER_MAX_STALLED_COUNT,
     }
   );
 
   worker.on('completed', (job, result) => {
     logger.info(
-      { jobId: job.id, submissionId: result?.submissionId, verdict: result?.verdict },
+      {
+        jobId: job.id,
+        submissionId: result?.submissionId,
+        retryAttempt: Math.max(1, job.attemptsMade),
+        finalVerdict: result?.verdict,
+        skipped: result?.skipped,
+      },
       'BullMQ job completed'
+    );
+  });
+
+  worker.on('stalled', (jobId) => {
+    logger.warn(
+      { jobId, failureCategory: 'STALLED_JOB' },
+      'Detected stalled BullMQ job; lock expired before completion'
     );
   });
 
   worker.on('failed', async (job, err) => {
     const submissionId = job?.data?.submissionId;
-    const isPermanent =
-      err instanceof UnrecoverableError ||
-      (job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1));
+    const classified = classifyWorkerError(err);
+    const maxAttempts = job?.opts.attempts ?? workerEnv.WORKER_MAX_ATTEMPTS;
+    const exhausted = job !== undefined && job.attemptsMade >= maxAttempts;
+    const isPermanent = classified.permanent || exhausted;
 
     logger.error(
       {
         jobId: job?.id,
         submissionId,
-        attemptsMade: job?.attemptsMade,
+        retryAttempt: job?.attemptsMade,
+        failureCategory: classified.category,
         isPermanent,
-        err: err.message,
+        err: classified.message,
       },
       'BullMQ job failed'
     );
 
-    // Prevent exhausted jobs from remaining stuck in QUEUED or RUNNING forever
     if (isPermanent && submissionId) {
       try {
         await repository.saveFinalVerdict({
@@ -92,28 +140,68 @@ export async function startJudgeWorker(): Promise<RunningJudgeWorker> {
           memoryUsedKb: 0,
         });
       } catch (dbErr: any) {
-        logger.error({ submissionId, err: dbErr?.message }, 'Failed fallback status update');
+        logger.error(
+          {
+            submissionId,
+            jobId: job?.id,
+            failureCategory: 'DATABASE_TRANSIENT_ERROR',
+            err: dbErr?.message,
+          },
+          'Failed fallback status update after permanent failure'
+        );
       }
     }
   });
 
   worker.on('error', (err) => {
-    logger.error({ err: err.message }, 'BullMQ worker runtime error');
+    logger.error(
+      { failureCategory: 'REDIS_TRANSIENT_ERROR', err: err.message },
+      'BullMQ worker runtime error'
+    );
   });
+
+  let sweepTimer: NodeJS.Timeout | null = null;
+  if (options?.enableSweeper !== false) {
+    const runSweep = () => {
+      void recoveryService
+        .recoverStaleSubmissions({
+          staleThresholdMs: workerEnv.RECOVERY_STALE_MS,
+          maxAttempts: workerEnv.WORKER_MAX_ATTEMPTS,
+        })
+        .catch((err: any) => {
+          logger.warn({ err: err?.message }, 'Stale submission recovery sweep failed');
+        });
+    };
+
+    // Safely prune orphaned containers & stale (aged) RUNNING rows without blindly resetting active jobs
+    runSweep();
+    sweepTimer = setInterval(runSweep, workerEnv.RECOVERY_INTERVAL_MS);
+  }
 
   const stop = async () => {
     logger.info('Stopping BullMQ judge worker...');
+    if (sweepTimer) {
+      clearInterval(sweepTimer);
+      sweepTimer = null;
+    }
     await worker.close();
+    await queue.close().catch(() => {});
     await workerLifecycle.cleanupActiveContainers();
     await redisPublisher.quit().catch(() => {});
     await closeDatabase().catch(() => {});
   };
 
   logger.info(
-    { queue: QUEUES.JUDGE, concurrency: workerEnv.WORKER_CONCURRENCY },
+    {
+      queue: QUEUES.JUDGE,
+      concurrency: workerEnv.WORKER_CONCURRENCY,
+      lockDurationMs: workerEnv.WORKER_LOCK_DURATION_MS,
+      stalledIntervalMs: workerEnv.WORKER_STALLED_INTERVAL_MS,
+      maxStalledCount: workerEnv.WORKER_MAX_STALLED_COUNT,
+      recoveryStaleMs: workerEnv.RECOVERY_STALE_MS,
+    },
     '[Judge-Worker] Host-run BullMQ worker started'
   );
 
-  return { worker, redisPublisher, stop };
+  return { worker, queue, redisPublisher, recoveryService, stop };
 }
-

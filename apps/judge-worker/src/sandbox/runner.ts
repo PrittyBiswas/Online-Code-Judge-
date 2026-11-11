@@ -1,8 +1,15 @@
 import { execFile, ChildProcess } from 'child_process';
 import crypto from 'crypto';
+import pino from 'pino';
 import { Verdict, SupportedLanguage } from '@judge/shared';
 import { workerEnv } from '../config/env.js';
 import { workerLifecycle } from '../recovery/shutdown.js';
+import type { WorkerFailureCategory } from '../utils/errors.js';
+
+const logger = pino({
+  level: workerEnv.LOG_LEVEL,
+  base: { service: 'judge-worker-sandbox' },
+});
 
 export interface SandboxOptions {
   code: string;
@@ -23,6 +30,7 @@ export interface SandboxExecutionResult {
   executionTimeMs: number;
   memoryUsedKb: number;
   exitCode: number | null;
+  infraFailureCategory?: WorkerFailureCategory;
 }
 
 const COMPILE_ERROR_MARKER = '__JUDGE_COMPILE_ERROR__';
@@ -166,8 +174,154 @@ function parseMemoryAndCleanStderr(rawStderr: string): { stderr: string; memoryU
 }
 
 /**
+ * Classifies exit conditions into Verdict and optional retryable infrastructure failure category.
+ */
+export function classifySandboxOutcome(params: {
+  timedOut: boolean;
+  outputExceeded: boolean;
+  error: (Error & { code?: number | string; signal?: string | null }) | null;
+  exitCode: number | null;
+  rawStdout: string;
+  rawStderr: string;
+  durationMs: number;
+  memoryLimitMb: number;
+}): SandboxExecutionResult {
+  const {
+    timedOut,
+    outputExceeded,
+    error,
+    exitCode,
+    rawStdout,
+    rawStderr,
+    durationMs,
+    memoryLimitMb,
+  } = params;
+  const { stderr: cleanStderr, memoryUsedKb } = parseMemoryAndCleanStderr(rawStderr);
+  const boundedStderr = cleanStderr.slice(0, 65536);
+
+  if (timedOut) {
+    return {
+      verdict: Verdict.TIME_LIMIT_EXCEEDED,
+      stdout: '',
+      stderr: 'Time Limit Exceeded',
+      executionTimeMs: durationMs,
+      memoryUsedKb,
+      exitCode: null,
+    };
+  }
+
+  if (outputExceeded) {
+    return {
+      verdict: Verdict.OUTPUT_LIMIT_EXCEEDED,
+      stdout: rawStdout.slice(0, 1024),
+      stderr: 'Output Limit Exceeded',
+      executionTimeMs: durationMs,
+      memoryUsedKb,
+      exitCode: null,
+    };
+  }
+
+  if (error) {
+    const lowerErr = `${error.message || ''} ${boundedStderr}`.toLowerCase();
+
+    if (
+      lowerErr.includes('cannot connect to the docker daemon') ||
+      lowerErr.includes('dockerdesktoplinuxengine') ||
+      lowerErr.includes('error during connect') ||
+      (error as any).code === 'ENOENT'
+    ) {
+      return {
+        verdict: Verdict.INTERNAL_ERROR,
+        stdout: '',
+        stderr: 'Sandbox Docker daemon unavailable',
+        executionTimeMs: durationMs,
+        memoryUsedKb: 0,
+        exitCode,
+        infraFailureCategory: 'DOCKER_DAEMON_UNAVAILABLE',
+      };
+    }
+
+    // Docker CLI reserves exit codes 125 (daemon/run flag error), 126 (cannot invoke), 127 (command missing)
+    const isContainerStartError =
+      exitCode === 125 ||
+      exitCode === 126 ||
+      exitCode === 127 ||
+      lowerErr.includes('unable to find image') ||
+      lowerErr.includes('pull access denied') ||
+      lowerErr.includes('no such image');
+
+    if (isContainerStartError && !rawStderr.includes(COMPILE_ERROR_MARKER)) {
+      return {
+        verdict: Verdict.INTERNAL_ERROR,
+        stdout: '',
+        stderr: 'Sandbox container failed to start',
+        executionTimeMs: durationMs,
+        memoryUsedKb: 0,
+        exitCode,
+        infraFailureCategory: 'SANDBOX_CONTAINER_START_FAILED',
+      };
+    }
+
+    const isOom =
+      exitCode === 137 ||
+      error.signal === 'SIGKILL' ||
+      boundedStderr.includes('heap out of memory') ||
+      boundedStderr.includes('MemoryError');
+
+    if (isOom) {
+      return {
+        verdict: Verdict.MEMORY_LIMIT_EXCEEDED,
+        stdout: rawStdout,
+        stderr: 'Memory Limit Exceeded',
+        executionTimeMs: durationMs,
+        memoryUsedKb: Math.max(memoryUsedKb, memoryLimitMb * 1024),
+        exitCode: 137,
+      };
+    }
+
+    const isCompileError =
+      exitCode === 65 ||
+      rawStderr.includes(COMPILE_ERROR_MARKER) ||
+      boundedStderr.includes('SyntaxError') ||
+      boundedStderr.includes('IndentationError');
+
+    return {
+      verdict: isCompileError ? Verdict.COMPILATION_ERROR : Verdict.RUNTIME_ERROR,
+      stdout: rawStdout,
+      stderr: boundedStderr.slice(0, 2048),
+      executionTimeMs: durationMs,
+      memoryUsedKb,
+      exitCode: exitCode ?? 1,
+    };
+  }
+
+  return {
+    verdict: Verdict.ACCEPTED,
+    stdout: rawStdout,
+    stderr: boundedStderr,
+    executionTimeMs: durationMs,
+    memoryUsedKb,
+    exitCode: 0,
+  };
+}
+
+function forceRemoveContainer(containerName: string): Promise<void> {
+  return new Promise((done) => {
+    execFile('docker', ['rm', '-f', containerName], { timeout: 5000 }, (rmErr, _out, rmStderr) => {
+      if (rmErr) {
+        const msg = String(rmStderr || rmErr.message || '');
+        if (!msg.includes('No such container')) {
+          logger.warn({ containerName, err: msg }, 'Container cleanup command failed');
+        }
+      }
+      workerLifecycle.unregisterContainer(containerName);
+      done();
+    });
+  });
+}
+
+/**
  * Executes untrusted code inside a disposable, locked-down Docker container.
- * Submitted code and stdin are sent via piped stdin (never shell-interpolated or mounted from host).
  */
 export async function runInSandbox(options: SandboxOptions): Promise<SandboxExecutionResult> {
   const {
@@ -214,98 +368,25 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
         if (settled) return;
         settled = true;
 
-        const duration = Date.now() - startTime;
+        const durationMs = Date.now() - startTime;
         const rawStdout = (stdout || out || '').slice(0, maxOutputBytes);
         const rawStderr = stderr || err || '';
-        const { stderr: cleanStderr, memoryUsedKb } = parseMemoryAndCleanStderr(rawStderr);
-        const boundedStderr = cleanStderr.slice(0, maxOutputBytes);
+        const exitCode =
+          child.exitCode ?? (typeof (error as any)?.code === 'number' ? (error as any).code : null);
 
-        // Ensure container is fully removed before resolving so no leaked containers remain
-        execFile('docker', ['rm', '-f', containerName], { timeout: 5000 }, () => {
-          workerLifecycle.unregisterContainer(containerName);
-
-          if (timedOut) {
-            return resolve({
-              verdict: Verdict.TIME_LIMIT_EXCEEDED,
-              stdout: '',
-              stderr: 'Time Limit Exceeded',
-              executionTimeMs: duration,
-              memoryUsedKb,
-              exitCode: null,
-            });
-          }
-
-          if (outputExceeded) {
-            return resolve({
-              verdict: Verdict.OUTPUT_LIMIT_EXCEEDED,
-              stdout: rawStdout.slice(0, 1024),
-              stderr: 'Output Limit Exceeded',
-              executionTimeMs: duration,
-              memoryUsedKb,
-              exitCode: null,
-            });
-          }
-
-          if (error) {
-            const exitCode =
-              child.exitCode ??
-              (typeof (error as any).code === 'number' ? (error as any).code : null);
-            const isOom =
-              exitCode === 137 ||
-              error.signal === 'SIGKILL' ||
-              boundedStderr.includes('heap out of memory') ||
-              boundedStderr.includes('MemoryError');
-
-            if (isOom) {
-              return resolve({
-                verdict: Verdict.MEMORY_LIMIT_EXCEEDED,
-                stdout: rawStdout,
-                stderr: 'Memory Limit Exceeded',
-                executionTimeMs: duration,
-                memoryUsedKb: Math.max(memoryUsedKb, memoryLimitMb * 1024),
-                exitCode: 137,
-              });
-            }
-
-            // Detect Docker daemon failure rather than misclassifying it as user code runtime error
-            if (
-              boundedStderr.includes('Cannot connect to the Docker daemon') ||
-              boundedStderr.includes('dockerDesktopLinuxEngine')
-            ) {
-              return resolve({
-                verdict: Verdict.INTERNAL_ERROR,
-                stdout: '',
-                stderr: 'Sandbox Docker daemon unavailable',
-                executionTimeMs: duration,
-                memoryUsedKb: 0,
-                exitCode,
-              });
-            }
-
-            const isCompileError =
-              exitCode === 65 ||
-              rawStderr.includes(COMPILE_ERROR_MARKER) ||
-              boundedStderr.includes('SyntaxError') ||
-              boundedStderr.includes('IndentationError');
-
-            return resolve({
-              verdict: isCompileError ? Verdict.COMPILATION_ERROR : Verdict.RUNTIME_ERROR,
-              stdout: rawStdout,
-              stderr: boundedStderr.slice(0, 2048),
-              executionTimeMs: duration,
-              memoryUsedKb,
-              exitCode: exitCode ?? 1,
-            });
-          }
-
-          return resolve({
-            verdict: Verdict.ACCEPTED,
-            stdout: rawStdout,
-            stderr: boundedStderr,
-            executionTimeMs: duration,
-            memoryUsedKb,
-            exitCode: 0,
-          });
+        void forceRemoveContainer(containerName).then(() => {
+          resolve(
+            classifySandboxOutcome({
+              timedOut,
+              outputExceeded,
+              error: error as (Error & { code?: number | string; signal?: string | null }) | null,
+              exitCode,
+              rawStdout,
+              rawStderr,
+              durationMs,
+              memoryLimitMb,
+            })
+          );
         });
       }
     );
@@ -313,11 +394,17 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
     const terminateContainer = () => {
       if (killed) return;
       killed = true;
-      execFile('docker', ['kill', containerName], () => {});
+      execFile('docker', ['kill', containerName], { timeout: 3000 }, (killErr, _o, killStderr) => {
+        if (killErr) {
+          const msg = String(killStderr || killErr.message || '');
+          if (!msg.includes('No such container') && !msg.includes('is not running')) {
+            logger.warn({ containerName, err: msg }, 'Failed killing sandbox container');
+          }
+        }
+      });
       child.kill('SIGKILL');
     };
 
-    // External wall-clock timeout enforced on host
     const timeoutHandle = setTimeout(() => {
       timedOut = true;
       terminateContainer();

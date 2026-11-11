@@ -1,5 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { UnrecoverableError } from 'bullmq';
+import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm';
 import Redis from 'ioredis';
 import pino from 'pino';
 import {
@@ -22,13 +21,28 @@ import {
 import { workerStorage } from '../storage/minio.js';
 import { Executor, executor as defaultExecutor, TestCasePayload } from '../executor/executor.js';
 import { VerdictHandler, verdictHandler as defaultVerdictHandler } from '../verdicts/handler.js';
+import {
+  classifyWorkerError,
+  PermanentWorkerError,
+  RetryableWorkerError,
+  type WorkerFailureCategory,
+} from '../utils/errors.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const logger = pino({ level: process.env.LOG_LEVEL || 'info', base: { service: 'judge-worker' } });
 
+export interface ClaimOptions {
+  expectedStatus: SubmissionStatus.QUEUED | SubmissionStatus.RUNNING;
+  expectedUpdatedAt: Date;
+  expectedRetryCount?: number;
+}
+
 export interface JudgeRepository {
   getSubmissionById(id: string): Promise<SubmissionRow | null>;
-  claimSubmissionRunning(id: string): Promise<SubmissionRow | null>;
+  claimSubmissionRunning(id: string, options: ClaimOptions): Promise<SubmissionRow | null>;
+  releaseSubmissionToQueued(id: string, expectedUpdatedAt: Date): Promise<boolean>;
+  findStaleRunningSubmissions(cutoff: Date, limit: number): Promise<SubmissionRow[]>;
+  resetStaleSubmissionToQueued(id: string, expectedUpdatedAt: Date): Promise<boolean>;
   getProblemById(id: string): Promise<ProblemRow | null>;
   getTestCasesByProblemId(problemId: string): Promise<TestCaseRow[]>;
   saveFinalVerdict(params: {
@@ -44,6 +58,12 @@ export interface StorageReader {
   getObject(key: string): Promise<string | null>;
 }
 
+export interface ProcessSubmissionContext {
+  jobId?: string;
+  attemptNumber?: number;
+  allowRetryReclaim?: boolean;
+}
+
 export interface ProcessSubmissionResult {
   submissionId: string;
   skipped: boolean;
@@ -51,6 +71,12 @@ export interface ProcessSubmissionResult {
   failedTestIndex?: number;
   executionTimeMs?: number;
   memoryUsedKb?: number;
+  failureCategory?: WorkerFailureCategory;
+}
+
+function timestampMatchesMs(expectedDate: Date) {
+  // Compare within 2ms tolerance because PostgreSQL NOW() stores microseconds while JS Date holds milliseconds.
+  return sql`abs(extract(epoch from (${submissions.updatedAt} - ${expectedDate.toISOString()}::timestamptz))) < 0.002`;
 }
 
 export class DrizzleJudgeRepository implements JudgeRepository {
@@ -59,7 +85,10 @@ export class DrizzleJudgeRepository implements JudgeRepository {
     return row ?? null;
   }
 
-  async claimSubmissionRunning(id: string): Promise<SubmissionRow | null> {
+  /**
+   * Optimistic compare-and-swap claim prevents two concurrent workers from claiming the same row.
+   */
+  async claimSubmissionRunning(id: string, options: ClaimOptions): Promise<SubmissionRow | null> {
     const [updated] = await db
       .update(submissions)
       .set({
@@ -70,11 +99,61 @@ export class DrizzleJudgeRepository implements JudgeRepository {
       .where(
         and(
           eq(submissions.id, id),
-          inArray(submissions.status, [SubmissionStatus.QUEUED, SubmissionStatus.RUNNING])
+          eq(submissions.status, options.expectedStatus),
+          options.expectedRetryCount !== undefined
+            ? eq(submissions.retryCount, options.expectedRetryCount)
+            : undefined,
+          timestampMatchesMs(options.expectedUpdatedAt)
         )
       )
       .returning();
     return updated ?? null;
+  }
+
+  async releaseSubmissionToQueued(id: string, expectedUpdatedAt: Date): Promise<boolean> {
+    const rows = await db
+      .update(submissions)
+      .set({
+        status: SubmissionStatus.QUEUED,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(submissions.id, id),
+          eq(submissions.status, SubmissionStatus.RUNNING),
+          timestampMatchesMs(expectedUpdatedAt)
+        )
+      )
+      .returning({ id: submissions.id });
+    return rows.length > 0;
+  }
+
+  async findStaleRunningSubmissions(cutoff: Date, limit: number): Promise<SubmissionRow[]> {
+    return db
+      .select()
+      .from(submissions)
+      .where(
+        and(eq(submissions.status, SubmissionStatus.RUNNING), lt(submissions.updatedAt, cutoff))
+      )
+      .limit(limit);
+  }
+
+  async resetStaleSubmissionToQueued(id: string, expectedUpdatedAt: Date): Promise<boolean> {
+    const rows = await db
+      .update(submissions)
+      .set({
+        status: SubmissionStatus.QUEUED,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(submissions.id, id),
+          eq(submissions.status, SubmissionStatus.RUNNING),
+          timestampMatchesMs(expectedUpdatedAt)
+        )
+      )
+      .returning({ id: submissions.id });
+    return rows.length > 0;
   }
 
   async getProblemById(id: string): Promise<ProblemRow | null> {
@@ -125,6 +204,7 @@ export interface JudgeProcessorDeps {
   executor?: Executor;
   verdictHandler?: VerdictHandler;
   redisPublisher?: Redis | null;
+  context?: ProcessSubmissionContext;
 }
 
 const defaultRepository = new DrizzleJudgeRepository();
@@ -142,32 +222,57 @@ async function publishRunningEvent(redisPublisher: Redis | null | undefined, sub
 }
 
 /**
- * Processes a single queued submission job end-to-end.
- * Note: Never logs user source code or environment secrets.
+ * Processes a single queued submission job with atomic claiming, failure classification,
+ * safe release on retryable failures, and structured observability.
  */
 export async function processSubmissionJob(
   jobData: Partial<SubmissionJobData> & { submissionId?: string },
   deps: JudgeProcessorDeps = {}
 ): Promise<ProcessSubmissionResult> {
+  const startTime = Date.now();
   const repository = deps.repository ?? defaultRepository;
   const storage = deps.storage ?? workerStorage;
   const exec = deps.executor ?? defaultExecutor;
   const vHandler = deps.verdictHandler ?? defaultVerdictHandler;
   const redisPublisher = deps.redisPublisher ?? null;
+  const jobId = deps.context?.jobId;
+  const attemptNumber = deps.context?.attemptNumber ?? 1;
+  const allowRetryReclaim = deps.context?.allowRetryReclaim ?? attemptNumber > 1;
 
   const submissionId = jobData.submissionId;
   if (!submissionId || !UUID_REGEX.test(submissionId)) {
-    throw new UnrecoverableError('Invalid or missing submission ID');
+    throw new PermanentWorkerError('INVALID_JOB_DATA', 'Invalid or missing submission ID');
   }
 
-  const existing = await repository.getSubmissionById(submissionId);
+  let existing: SubmissionRow | null;
+  try {
+    existing = await repository.getSubmissionById(submissionId);
+  } catch (err: any) {
+    throw new RetryableWorkerError(
+      'DATABASE_TRANSIENT_ERROR',
+      `Failed reading submission "${submissionId}": ${err?.message || 'database error'}`
+    );
+  }
+
   if (!existing) {
-    throw new UnrecoverableError(`Submission "${submissionId}" does not exist`);
+    throw new PermanentWorkerError(
+      'SUBMISSION_NOT_FOUND',
+      `Submission "${submissionId}" does not exist`
+    );
   }
 
-  // Idempotency: Do not reprocess submissions that have already completed
+  // Completed submissions must never transition back to RUNNING
   if (existing.status === SubmissionStatus.COMPLETED) {
-    logger.info({ submissionId }, 'Skipping already-completed submission (duplicate delivery)');
+    logger.info(
+      {
+        submissionId,
+        jobId,
+        retryAttempt: attemptNumber,
+        finalVerdict: existing.verdict,
+        durationMs: Date.now() - startTime,
+      },
+      'Skipping already-completed submission (duplicate delivery protected)'
+    );
     return {
       submissionId,
       skipped: true,
@@ -175,161 +280,248 @@ export async function processSubmissionJob(
     };
   }
 
-  const claimed = await repository.claimSubmissionRunning(submissionId);
+  if (existing.status === SubmissionStatus.RUNNING && !allowRetryReclaim) {
+    logger.info(
+      { submissionId, jobId, retryAttempt: attemptNumber },
+      'Submission currently RUNNING in another attempt/worker; skipping concurrent duplicate'
+    );
+    return { submissionId, skipped: true };
+  }
+
+  const claimed = await repository
+    .claimSubmissionRunning(submissionId, {
+      expectedStatus: existing.status as SubmissionStatus.QUEUED | SubmissionStatus.RUNNING,
+      expectedUpdatedAt: existing.updatedAt,
+      expectedRetryCount: existing.retryCount,
+    })
+    .catch((err: any) => {
+      throw new RetryableWorkerError(
+        'DATABASE_TRANSIENT_ERROR',
+        `Failed claiming submission "${submissionId}": ${err?.message || 'database error'}`
+      );
+    });
+
   if (!claimed) {
-    logger.info({ submissionId }, 'Submission already finalized concurrently; skipping');
+    logger.info(
+      { submissionId, jobId, retryAttempt: attemptNumber },
+      'Submission claim lost optimistic CAS race; skipping'
+    );
     return { submissionId, skipped: true };
   }
 
   await publishRunningEvent(redisPublisher, submissionId);
 
-  const problem = await repository.getProblemById(claimed.problemId);
-  if (!problem || problem.isArchived) {
-    await repository.saveFinalVerdict({
-      id: submissionId,
-      verdict: Verdict.INTERNAL_ERROR,
-      executionTimeMs: 0,
-      memoryUsedKb: 0,
+  try {
+    const problem = await repository.getProblemById(claimed.problemId).catch((err: any) => {
+      throw new RetryableWorkerError(
+        'DATABASE_TRANSIENT_ERROR',
+        `Failed loading problem "${claimed.problemId}": ${err?.message || 'database error'}`
+      );
     });
-    throw new UnrecoverableError(`Problem "${claimed.problemId}" not found or archived`);
-  }
 
-  if (claimed.language !== 'javascript' && claimed.language !== 'python') {
-    await repository.saveFinalVerdict({
-      id: submissionId,
-      verdict: Verdict.INTERNAL_ERROR,
-      executionTimeMs: 0,
-      memoryUsedKb: 0,
-    });
-    throw new UnrecoverableError(`Unsupported language "${claimed.language}"`);
-  }
-
-  const dbTestCases = await repository.getTestCasesByProblemId(problem.id);
-  const payloads: TestCasePayload[] = [];
-
-  if (dbTestCases.length > 0) {
-    for (const tc of dbTestCases) {
-      const [inputContent, expectedContent] = await Promise.all([
-        storage.getObject(tc.inputKey),
-        storage.getObject(tc.expectedOutputKey),
-      ]);
-
-      if (inputContent === null || expectedContent === null) {
-        logger.error(
-          { submissionId, problemId: problem.id, testIndex: tc.index },
-          'Missing test case object in MinIO/Silo storage'
-        );
-        await vHandler.processVerdict({
-          submissionId,
-          problemId: problem.id,
-          userId: claimed.userId,
-          evaluation: {
-            finalVerdict: Verdict.INTERNAL_ERROR,
-            failedTestIndex: tc.index,
-            results: [],
-            maxExecutionTimeMs: 0,
-            maxMemoryUsedKb: 0,
-          },
-          dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
-            repository.saveFinalVerdict({
-              id,
-              verdict,
-              executionTimeMs,
-              memoryUsedKb,
-              failedTestIndex,
-            }),
-          redisPublisher,
-        });
-        throw new UnrecoverableError(
-          `Missing object storage file for problem "${problem.id}" test index ${tc.index}`
-        );
-      }
-
-      payloads.push({
-        index: tc.index,
-        input: inputContent,
-        expectedOutput: expectedContent,
-        isHidden: tc.isHidden,
+    if (!problem || problem.isArchived) {
+      await repository.saveFinalVerdict({
+        id: submissionId,
+        verdict: Verdict.INTERNAL_ERROR,
+        executionTimeMs: 0,
+        memoryUsedKb: 0,
       });
+      throw new PermanentWorkerError(
+        'PROBLEM_NOT_FOUND',
+        `Problem "${claimed.problemId}" not found or archived`
+      );
     }
-  } else if (problem.sampleInput.length > 0 || problem.sampleExpectedOutput.length > 0) {
-    payloads.push({
-      index: 0,
-      input: problem.sampleInput,
-      expectedOutput: problem.sampleExpectedOutput,
-      isHidden: false,
-    });
-  } else {
-    await repository.saveFinalVerdict({
-      id: submissionId,
-      verdict: Verdict.INTERNAL_ERROR,
-      executionTimeMs: 0,
-      memoryUsedKb: 0,
-    });
-    throw new UnrecoverableError(`Problem "${problem.id}" has no executable test cases`);
-  }
 
-  const executionJob: SubmissionJobData = {
-    submissionId,
-    problemId: problem.id,
-    userId: claimed.userId,
-    code: claimed.code,
-    language: claimed.language as SupportedLanguage,
-    timeLimitMs: problem.timeLimitMs,
-    memoryLimitMb: problem.memoryLimitMb,
-  };
-
-  const evaluation = await exec.execute(executionJob, payloads);
-
-  // If Docker daemon itself failed, treat as transient so BullMQ retry can recover
-  if (
-    evaluation.finalVerdict === Verdict.INTERNAL_ERROR &&
-    evaluation.results.length > 0 &&
-    evaluation.maxExecutionTimeMs >= 0
-  ) {
-    // Allow retries only if sandbox hit infrastructure error
-    const firstResult = evaluation.results[0];
-    if (firstResult.verdict === Verdict.INTERNAL_ERROR) {
-      throw new Error('Sandbox execution encountered an internal infrastructure error');
+    if (claimed.language !== 'javascript' && claimed.language !== 'python') {
+      await repository.saveFinalVerdict({
+        id: submissionId,
+        verdict: Verdict.INTERNAL_ERROR,
+        executionTimeMs: 0,
+        memoryUsedKb: 0,
+      });
+      throw new PermanentWorkerError(
+        'UNSUPPORTED_LANGUAGE',
+        `Unsupported language "${claimed.language}"`
+      );
     }
-  }
 
-  const saved = await vHandler.processVerdict({
-    submissionId,
-    problemId: problem.id,
-    userId: claimed.userId,
-    evaluation,
-    dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
-      repository.saveFinalVerdict({
-        id,
-        verdict,
-        executionTimeMs,
-        memoryUsedKb,
-        failedTestIndex,
-      }),
-    redisPublisher,
-  });
+    const dbTestCases = await repository.getTestCasesByProblemId(problem.id).catch((err: any) => {
+      throw new RetryableWorkerError(
+        'DATABASE_TRANSIENT_ERROR',
+        `Failed loading test cases for "${problem.id}": ${err?.message || 'database error'}`
+      );
+    });
 
-  logger.info(
-    {
+    const payloads: TestCasePayload[] = [];
+
+    if (dbTestCases.length > 0) {
+      for (const tc of dbTestCases) {
+        let inputContent: string | null;
+        let expectedContent: string | null;
+
+        try {
+          [inputContent, expectedContent] = await Promise.all([
+            storage.getObject(tc.inputKey),
+            storage.getObject(tc.expectedOutputKey),
+          ]);
+        } catch (err: any) {
+          throw new RetryableWorkerError(
+            'OBJECT_STORAGE_TRANSIENT_ERROR',
+            `Transient object storage failure for test ${tc.index}: ${err?.message || 'storage error'}`
+          );
+        }
+
+        if (inputContent === null || expectedContent === null) {
+          logger.error(
+            {
+              submissionId,
+              jobId,
+              problemId: problem.id,
+              testIndex: tc.index,
+              failureCategory: 'MISSING_TEST_CASE_OBJECT',
+            },
+            'Missing test case object in MinIO/Silo storage'
+          );
+          await vHandler.processVerdict({
+            submissionId,
+            problemId: problem.id,
+            userId: claimed.userId,
+            evaluation: {
+              finalVerdict: Verdict.INTERNAL_ERROR,
+              failedTestIndex: tc.index,
+              results: [],
+              maxExecutionTimeMs: 0,
+              maxMemoryUsedKb: 0,
+            },
+            dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
+              repository.saveFinalVerdict({
+                id,
+                verdict,
+                executionTimeMs,
+                memoryUsedKb,
+                failedTestIndex,
+              }),
+            redisPublisher,
+          });
+          throw new PermanentWorkerError(
+            'MISSING_TEST_CASE_OBJECT',
+            `Missing object storage file for problem "${problem.id}" test index ${tc.index}`
+          );
+        }
+
+        payloads.push({
+          index: tc.index,
+          input: inputContent,
+          expectedOutput: expectedContent,
+          isHidden: tc.isHidden,
+        });
+      }
+    } else if (problem.sampleInput.length > 0 || problem.sampleExpectedOutput.length > 0) {
+      payloads.push({
+        index: 0,
+        input: problem.sampleInput,
+        expectedOutput: problem.sampleExpectedOutput,
+        isHidden: false,
+      });
+    } else {
+      await repository.saveFinalVerdict({
+        id: submissionId,
+        verdict: Verdict.INTERNAL_ERROR,
+        executionTimeMs: 0,
+        memoryUsedKb: 0,
+      });
+      throw new PermanentWorkerError(
+        'MISSING_TEST_CASES',
+        `Problem "${problem.id}" has no executable test cases`
+      );
+    }
+
+    const executionJob: SubmissionJobData = {
       submissionId,
       problemId: problem.id,
-      language: claimed.language,
+      userId: claimed.userId,
+      code: claimed.code,
+      language: claimed.language as SupportedLanguage,
+      timeLimitMs: problem.timeLimitMs,
+      memoryLimitMb: problem.memoryLimitMb,
+    };
+
+    const evaluation = await exec.execute(executionJob, payloads);
+
+    if (evaluation.finalVerdict === Verdict.INTERNAL_ERROR && evaluation.infraFailureCategory) {
+      throw new RetryableWorkerError(
+        evaluation.infraFailureCategory,
+        `Sandbox execution failed with infrastructure error (${evaluation.infraFailureCategory})`
+      );
+    }
+
+    const saved = await vHandler
+      .processVerdict({
+        submissionId,
+        problemId: problem.id,
+        userId: claimed.userId,
+        evaluation,
+        dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
+          repository.saveFinalVerdict({
+            id,
+            verdict,
+            executionTimeMs,
+            memoryUsedKb,
+            failedTestIndex,
+          }),
+        redisPublisher,
+      })
+      .catch((err: any) => {
+        throw new RetryableWorkerError(
+          'DATABASE_TRANSIENT_ERROR',
+          `Failed persisting verdict for "${submissionId}": ${err?.message || 'database error'}`
+        );
+      });
+
+    const durationMs = Date.now() - startTime;
+    logger.info(
+      {
+        submissionId,
+        jobId,
+        problemId: problem.id,
+        language: claimed.language,
+        retryAttempt: attemptNumber,
+        durationMs,
+        finalVerdict: evaluation.finalVerdict,
+        executionTimeMs: evaluation.maxExecutionTimeMs,
+        memoryUsedKb: evaluation.maxMemoryUsedKb,
+        saved,
+      },
+      'Finished evaluating submission'
+    );
+
+    return {
+      submissionId,
+      skipped: !saved,
       verdict: evaluation.finalVerdict,
+      failedTestIndex: evaluation.failedTestIndex,
       executionTimeMs: evaluation.maxExecutionTimeMs,
       memoryUsedKb: evaluation.maxMemoryUsedKb,
-      saved,
-    },
-    'Finished evaluating submission'
-  );
+    };
+  } catch (err) {
+    const info = classifyWorkerError(err);
+    if (!info.permanent) {
+      // Release RUNNING -> QUEUED cleanly when Postgres is reachable so retries or sweeper can claim
+      await repository.releaseSubmissionToQueued(submissionId, claimed.updatedAt).catch(() => {});
+    }
 
-  return {
-    submissionId,
-    skipped: !saved,
-    verdict: evaluation.finalVerdict,
-    failedTestIndex: evaluation.failedTestIndex,
-    executionTimeMs: evaluation.maxExecutionTimeMs,
-    memoryUsedKb: evaluation.maxMemoryUsedKb,
-  };
+    logger.warn(
+      {
+        submissionId,
+        jobId,
+        retryAttempt: attemptNumber,
+        durationMs: Date.now() - startTime,
+        failureCategory: info.category,
+        permanent: info.permanent,
+        err: info.message,
+      },
+      'Submission processing interrupted'
+    );
+    throw err;
+  }
 }
-

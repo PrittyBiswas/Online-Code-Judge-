@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFile } from 'child_process';
 import crypto from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { Queue } from 'bullmq';
 import { QUEUES, SubmissionStatus, Verdict } from '@judge/shared';
 import { runInSandbox } from '../src/sandbox/runner.js';
 import { db, closeDatabase } from '../src/db/index.js';
 import { problems, submissions, testCases } from '../src/db/schema.js';
 import { workerStorage } from '../src/storage/minio.js';
+import { DrizzleJudgeRepository } from '../src/processor/judgeProcessor.js';
+import { SubmissionRecoveryService } from '../src/recovery/recoveryService.js';
+import { WorkerLifecycle } from '../src/recovery/shutdown.js';
 import {
   startJudgeWorker,
   parseRedisConnectionOptions,
@@ -24,12 +27,12 @@ function execDocker(args: string[]): Promise<string> {
   });
 }
 
-describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6)', () => {
+describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–7)', () => {
   const runTag = `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const createdKeys: string[] = [];
+  const createdSubmissionIds: string[] = [];
   let createdUserId: string | undefined;
   let createdProblemId: string | undefined;
-  let createdSubmissionId: string | undefined;
   let workerRuntime: RunningJudgeWorker | undefined;
   let queue: Queue | undefined;
 
@@ -47,10 +50,10 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6)', () => {
     for (const key of createdKeys) {
       await workerStorage.deleteObject(key).catch(() => {});
     }
-    if (createdSubmissionId) {
+    if (createdSubmissionIds.length > 0) {
       await db
         .delete(submissions)
-        .where(eq(submissions.id, createdSubmissionId))
+        .where(inArray(submissions.id, createdSubmissionIds))
         .catch(() => {});
     }
     if (createdProblemId) {
@@ -190,7 +193,8 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6)', () => {
       isHidden: true,
     });
 
-    createdSubmissionId = crypto.randomUUID();
+    const createdSubmissionId = crypto.randomUUID();
+    createdSubmissionIds.push(createdSubmissionId);
     await db.insert(submissions).values({
       id: createdSubmissionId,
       problemId: createdProblemId,
@@ -200,7 +204,7 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6)', () => {
       status: SubmissionStatus.QUEUED,
     });
 
-    workerRuntime = await startJudgeWorker();
+    workerRuntime = await startJudgeWorker({ enableSweeper: false });
     queue = new Queue(QUEUES.JUDGE, {
       connection: parseRedisConnectionOptions(workerEnv.REDIS_URL),
     });
@@ -239,5 +243,132 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6)', () => {
     expect(updatedRow.executionTimeMs).toBeGreaterThan(0);
     expect(updatedRow.memoryUsedKb).toBeGreaterThan(0);
     expect(updatedRow.failedTestIndex).toBeNull();
+  }, 30000);
+
+  it('enforces output caps and memory limits in live Docker containers without leaking containers', async () => {
+    const outputFlood = await runInSandbox({
+      language: 'javascript',
+      input: '',
+      code: `process.stdout.write('A'.repeat(2 * 1024 * 1024));`,
+      timeLimitMs: 3000,
+      memoryLimitMb: 128,
+    });
+    expect(outputFlood.verdict).toBe(Verdict.OUTPUT_LIMIT_EXCEEDED);
+
+    const oom = await runInSandbox({
+      language: 'python',
+      input: '',
+      code: `a = bytearray(256 * 1024 * 1024)\nprint(len(a))`,
+      timeLimitMs: 4000,
+      memoryLimitMb: 64,
+    });
+    expect([Verdict.MEMORY_LIMIT_EXCEEDED, Verdict.RUNTIME_ERROR]).toContain(oom.verdict);
+
+    const leftoverContainers = await execDocker([
+      'ps',
+      '-a',
+      '-q',
+      '--filter',
+      'name=judge-sandbox-',
+    ]);
+    expect(leftoverContainers).toBe('');
+  }, 30000);
+
+  it('prevents concurrent duplicate PostgreSQL claims and safely recovers only stale RUNNING submissions', async () => {
+    if (!createdUserId || !createdProblemId || !queue) {
+      throw new Error('Prerequisite problem/queue fixtures were not initialized');
+    }
+
+    const repo = new DrizzleJudgeRepository();
+
+    // 1. Concurrent optimistic CAS claim: two claims race on one QUEUED row -> only one succeeds
+    const raceId = crypto.randomUUID();
+    createdSubmissionIds.push(raceId);
+    const [insertedRace] = await db
+      .insert(submissions)
+      .values({
+        id: raceId,
+        problemId: createdProblemId,
+        userId: createdUserId,
+        code: 'console.log(42);',
+        language: 'javascript',
+        status: SubmissionStatus.QUEUED,
+      })
+      .returning();
+
+    const [claimA, claimB] = await Promise.all([
+      repo.claimSubmissionRunning(raceId, {
+        expectedStatus: SubmissionStatus.QUEUED,
+        expectedUpdatedAt: insertedRace.updatedAt,
+        expectedRetryCount: insertedRace.retryCount,
+      }),
+      repo.claimSubmissionRunning(raceId, {
+        expectedStatus: SubmissionStatus.QUEUED,
+        expectedUpdatedAt: insertedRace.updatedAt,
+        expectedRetryCount: insertedRace.retryCount,
+      }),
+    ]);
+
+    expect([claimA, claimB].filter(Boolean)).toHaveLength(1);
+
+    // 2. Recovery sweeper: fresh RUNNING row is untouched; stale RUNNING row recovers and completes
+    const freshRunningId = crypto.randomUUID();
+    const staleRunningId = crypto.randomUUID();
+    createdSubmissionIds.push(freshRunningId, staleRunningId);
+
+    await db.insert(submissions).values([
+      {
+        id: freshRunningId,
+        problemId: createdProblemId,
+        userId: createdUserId,
+        code: 'console.log(42);',
+        language: 'javascript',
+        status: SubmissionStatus.RUNNING,
+        retryCount: 1,
+        updatedAt: new Date(),
+      },
+      {
+        id: staleRunningId,
+        problemId: createdProblemId,
+        userId: createdUserId,
+        code: `const fs = require('fs'); const n = Number(fs.readFileSync(0, 'utf8').trim()); console.log(n * 2);`,
+        language: 'javascript',
+        status: SubmissionStatus.RUNNING,
+        retryCount: 1,
+        updatedAt: new Date(Date.now() - 120_000),
+      },
+    ]);
+
+    const lifecycle = new WorkerLifecycle();
+    const recovery = new SubmissionRecoveryService(repo, queue, lifecycle);
+    const report = await recovery.recoverStaleSubmissions({
+      staleThresholdMs: 30_000,
+      maxAttempts: 3,
+      batchLimit: 20,
+    });
+
+    expect(report.requeued).toBeGreaterThanOrEqual(1);
+
+    // Verify fresh RUNNING submission remained RUNNING
+    const [freshAfterSweep] = await db
+      .select()
+      .from(submissions)
+      .where(eq(submissions.id, freshRunningId));
+    expect(freshAfterSweep.status).toBe(SubmissionStatus.RUNNING);
+
+    // Wait for live worker to execute recovered stale submission to COMPLETED / ACCEPTED
+    let recoveredRow: any;
+    for (let i = 0; i < 30; i++) {
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, staleRunningId));
+      if (row?.status === SubmissionStatus.COMPLETED) {
+        recoveredRow = row;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    expect(recoveredRow).toBeDefined();
+    expect(recoveredRow.status).toBe(SubmissionStatus.COMPLETED);
+    expect(recoveredRow.verdict).toBe(Verdict.ACCEPTED);
   }, 30000);
 });
