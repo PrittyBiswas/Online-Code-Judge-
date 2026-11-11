@@ -17,55 +17,56 @@ export interface VerdictSaveOptions {
     id: string,
     verdict: Verdict,
     execTime: number,
+    memoryUsedKb: number,
     failedIndex?: number
   ) => Promise<boolean>;
-  redisPublisher?: Redis;
+  redisPublisher?: Redis | null;
 }
 
 export class VerdictHandler {
   /**
-   * Saves final verdict idempotently and publishes live update event (Card 2, Card 5, AC-SJ-06, AC-LB-01).
+   * Saves final verdict idempotently and publishes live update event (AC-SJ-06, AC-LB-01).
    */
   async processVerdict(options: VerdictSaveOptions): Promise<boolean> {
     const { submissionId, problemId, userId, evaluation, dbUpdateFn, redisPublisher } = options;
     const finalVerdict = evaluation.finalVerdict;
 
-    // 1. Idempotent DB update: UPDATE ... WHERE status IN ('QUEUED', 'RUNNING') (Card 2 / AC-SJ-06)
+    // 1. Idempotent DB update: UPDATE ... WHERE status IN ('QUEUED', 'RUNNING')
     if (dbUpdateFn) {
       const updated = await dbUpdateFn(
         submissionId,
         finalVerdict,
         evaluation.maxExecutionTimeMs,
+        evaluation.maxMemoryUsedKb,
         evaluation.failedTestIndex
       );
 
       if (!updated) {
-        // Already processed or duplicate delivery (Card 2)
         return false;
       }
     }
 
-    // 2. Publish live event via Redis Pub/Sub for SSE streaming (Card 5 / AC-LV-01, AC-LV-02)
+    // 2. Publish live SSE event via Redis Pub/Sub
     const event: SubmissionEvent = {
       submissionId,
       status: finalVerdict,
       verdict: finalVerdict,
       failedTestIndex: evaluation.failedTestIndex,
       executionTimeMs: evaluation.maxExecutionTimeMs,
+      memoryUsedKb: evaluation.maxMemoryUsedKb,
       timestamp: Date.now(),
     };
 
-    if (redisPublisher) {
+    if (redisPublisher && redisPublisher.status === 'ready') {
       try {
         await redisPublisher.publish(REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS, JSON.stringify(event));
       } catch {}
     }
 
-    // 3. Update Leaderboard if ACCEPTED (Card 6 / AC-LB-01, AC-LB-02)
-    if (finalVerdict === Verdict.ACCEPTED && redisPublisher) {
+    // 3. Update global leaderboard on first ACCEPTED solve
+    if (finalVerdict === Verdict.ACCEPTED && redisPublisher && redisPublisher.status === 'ready') {
       try {
         const solvedSetKey = `judge:user:${userId}:solved`;
-        // SADD returns 1 if added, 0 if user already solved this problem (AC-LB-02)
         const isFirstSolve = await redisPublisher.sadd(solvedSetKey, problemId);
 
         if (isFirstSolve === 1) {

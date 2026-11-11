@@ -144,17 +144,17 @@ pnpm test:integration  # Live PostgreSQL CRUD integration tests (requires runnin
 
 ## Implementation Status
 
-### Day 2, Day 3, Day 4 & Day 5 Completed
+### Day 2 – Day 6 Completed
 
 - pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking, strict `tsconfig.base.json`, ESLint, Prettier, `.editorconfig`, and `.gitignore`.
 - Express API (`GET /`, `GET /health/live`, `/health/extensive`), React + Vite frontend (`apps/frontend`), and shared `@judge/shared` package.
 - Local Docker Compose infrastructure (`postgres`, `redis`, `minio`, idempotent `create-buckets`) with `127.0.0.1`-only port bindings, named volumes, health checks, `REDIS_URL` queue wiring, and `pnpm infra:verify`.
-- Drizzle ORM + `pg` PostgreSQL integration (`apps/api/src/db/`), initial core schema (`users`, `problems`, `test_cases`, `submissions`), Drizzle Kit migrations (`drizzle/migrations/`), and live CRUD integration across `authService`, `usersService`, `problemsService`, `submissionsService`, `adminService`, `leaderboardService`, and SSE catch-up (`pnpm test:integration`, `pnpm db:verify`).
-- Host-run `apps/judge-worker` kept strictly separate from Docker Compose (no mounted Docker socket).
+- Drizzle ORM + `pg` PostgreSQL integration (`apps/api/src/db/`), core schema (`users`, `problems`, `test_cases`, `submissions`), migrations (`drizzle/migrations/`), and full CRUD integration (`pnpm test:integration`, `pnpm db:verify`).
+- Host-run BullMQ Judge Worker (`apps/judge-worker`) consuming `judge-queue`, downloading MinIO/Silo test cases via AWS SigV4, executing JavaScript & Python in disposable locked-down Docker containers (`--network none`, `--read-only`, `--cap-drop ALL`, `--user 1000:1000`), persisting verdicts idempotently to PostgreSQL, and publishing SSE updates — kept outside Docker Compose with zero `docker.sock` mounts.
 
-### Intentionally Postponed (Day 6+)
+### Intentionally Postponed (Day 7+)
 
-- Judge worker Docker sandbox execution pipeline (`apps/judge-worker`), live MinIO test-case evaluation, contest database tables, and end-to-end UI coding submission workflow.
+- End-to-end frontend Monaco Editor coding submission UI, SSE live verdict view, contest database tables, and cron recovery jobs.
 
 ---
 

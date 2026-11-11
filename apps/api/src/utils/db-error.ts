@@ -78,4 +78,3 @@ export function mapDatabaseError(err: unknown, messages: DbErrorMessages = {}): 
 
   return new AppError(ERROR_CODES.INTERNAL_ERROR, 'Database operation failed.', 500);
 }
-

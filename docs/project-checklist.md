@@ -55,9 +55,18 @@ This checklist tracks milestone completion across implementation days.
 - [x] Verify `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test`, `pnpm test:integration`, and `pnpm infra:verify`
 - [x] Update `docs/learning-notes.md`, `README.md`, `apps/api/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
 
-## Day 6+ — Upcoming Milestones (Not Started Yet)
+## Day 6 — Judge Worker Integration
 
-- [ ] Complete remaining contest persistence tables & Tier-2 features
-- [ ] Wire BullMQ submission queue to `apps/judge-worker` Docker sandbox execution
+- [x] Add Drizzle ORM + `pg` connection (`apps/judge-worker/src/db/`) and Zod env config (`src/config/env.ts`)
+- [x] Add AWS Signature V4 MinIO/Silo object storage client in worker and API (`src/storage/minio.ts`, `apps/api/src/config/minio.ts`)
+- [x] Implement BullMQ worker loop (`src/queue/worker.ts`) and idempotent submission processor (`src/processor/judgeProcessor.ts`)
+- [x] Support isolated JavaScript & Python sandbox execution with compilation/syntax check, TLE/OLE/MLE/RE/WA/AC verdicts, memory tracking, and awaited `docker rm -f` cleanup
+- [x] Add worker unit tests (`tests/worker-unit.test.ts`) and live Docker + BullMQ + Postgres + Silo integration tests (`tests/worker.integration.test.ts`)
+- [x] Update `apps/judge-worker/README.md`, `README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
+
+## Day 7+ — Upcoming Milestones (Not Started Yet)
+
+- [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
+- [ ] Complete remaining contest persistence tables & cron recovery jobs
 - [ ] Build Monaco Editor code submission workflow in `apps/frontend`
 - [ ] End-to-end attack-suite security verification

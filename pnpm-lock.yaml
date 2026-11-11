@@ -394,16 +394,28 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)
       ioredis:
         specifier: ^5.3.2
         version: 5.11.1(supports-color@7.2.0)
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       pino:
         specifier: ^8.19.0
         version: 8.21.0
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^20.11.24
         version: 20.19.43
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       tsx:
         specifier: ^4.7.1
         version: 4.23.15

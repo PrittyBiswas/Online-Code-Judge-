@@ -3,6 +3,18 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 6 (2026-11-11)
+
+### Added
+
+- **BullMQ Judge Worker (`apps/judge-worker/src/queue/worker.ts`, `src/processor/judgeProcessor.ts`)**: Implemented live BullMQ consumer on `judge-queue` with Drizzle ORM PostgreSQL connection (`src/db/`), idempotent `QUEUED -> RUNNING -> COMPLETED` transitions, missing-record/object handling (`UnrecoverableError`), SSE Redis Pub/Sub events, leaderboard updates, and graceful container cleanup on shutdown.
+- **MinIO/Silo S3 Signature V4 Storage (`apps/judge-worker/src/storage/minio.ts`, `apps/api/src/config/minio.ts`)**: Signed S3 PUT/GET/DELETE requests with AWS Signature V4 using configured credentials so uploaded test cases persist in `judge-testcases` and download reliably inside the worker.
+- **Worker Unit & Live Docker Integration Tests (`apps/judge-worker/tests/`)**: Added mocked processor/flag/retry/error tests (`worker-unit.test.ts`) and live JavaScript/Python sandbox + BullMQ + PostgreSQL + Silo integration tests (`worker.integration.test.ts`).
+
+### Changed
+
+- **Hardened Sandbox Runner (`apps/judge-worker/src/sandbox/runner.ts`)**: Added Python (`python:3.11-alpine`) support alongside Node 20 (`node:20-alpine`), piped `{ code, input }` via stdin instead of large CLI strings, enforced stdout+stderr caps, added compilation/syntax pre-checks (`COMPILATION_ERROR`), tracked peak container memory (`memoryUsedKb`), and awaited `docker rm -f` cleanup before resolving.
+
 ## [Unreleased] - Day 5 (2026-11-11)
 
 ### Added
