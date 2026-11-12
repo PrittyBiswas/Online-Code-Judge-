@@ -43,9 +43,13 @@ pnpm build
 - Centralized Axios client (`src/services/apiClient.ts`, `src/services/authApi.ts`) with `withCredentials: true` for HTTP-only cookies and global `401` session-expiration handling (never storing JWTs in `localStorage`/`sessionStorage`).
 - `AuthProvider` (`src/context/AuthContext.tsx`) bootstrapping via `GET /api/auth/me` (distinguishing `401` unauthenticated from temporary network errors), `LoginPage`, `RegisterPage` (client-side validation, never sending `role`), protected `DashboardPage`, and `ProtectedRoute`.
 - Logout (`POST /api/auth/logout`) clearing in-memory user state and user-specific React Query caches (`['auth']`, `['user']`, `['submissions']`) while leaving public problem caches intact.
-- Automated frontend auth tests (`pnpm --filter @judge/frontend test`).
+- **Problem List & Problem Details (Day 13)**:
+  - Public routes `/problems` (`ProblemsPage`) and `/problems/:id` (`ProblemDetailPage`, supporting UUID or slug) wired via `src/services/problemsApi.ts` (`GET /api/problems`, `GET /api/problems/:id`) and `@tanstack/react-query` with `AbortSignal` request cancellation.
+  - Debounced search (`300ms` via `useDebouncedValue`), `difficulty` and `tag` AND-filters, cursor-based Previous/Next pagination using `nextCursor` (resetting cursors whenever filters/search change), and loading/empty/error/404-not-found UI states.
+  - Safe plain-text rendering of problem statements and sample I/O (`whitespace-pre-wrap`, zero `dangerouslySetInnerHTML`) with zero hidden test-case or storage field exposure.
+- Automated frontend auth and problem tests (`pnpm --filter @judge/frontend test`).
 
 ## Intentionally Postponed
 
-- Problem list, statement viewer, and Monaco code editor.
+- Monaco code editor and submission execution workflow.
 - Live SSE submission updates, leaderboards, contests, and admin views.

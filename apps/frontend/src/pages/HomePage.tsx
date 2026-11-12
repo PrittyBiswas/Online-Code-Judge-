@@ -1,4 +1,5 @@
-import { ShieldCheck, Server, Layers, Cpu } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ShieldCheck, Server, Layers, Cpu, ArrowRight } from 'lucide-react';
 import { APP_INFO } from '@judge/shared';
 import type { HealthStatusResponse, PlatformFeature } from '../types';
 import { cn } from '../utils/cn';
@@ -47,6 +48,15 @@ export function HomePage({ apiStatus, healthData }: HomePageProps) {
           A secure, high-concurrency coding practice platform built with TypeScript, Express, React,
           PostgreSQL, Redis, BullMQ, and isolated Docker sandboxes.
         </p>
+        <div>
+          <Link
+            to="/problems"
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            Browse Problems
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">

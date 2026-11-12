@@ -407,4 +407,3 @@ describe('Day 12 Live Integration: Problem Search, Filtering, Pagination, MinIO 
     expect(await minioService.getObject(refTc.inputKey)).toBe('REF_IN');
   });
 });
-

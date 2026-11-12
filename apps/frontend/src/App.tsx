@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { MainLayout } from './layouts/MainLayout';
 import { HomePage } from './pages/HomePage';
+import { ProblemsPage } from './pages/ProblemsPage';
+import { ProblemDetailPage } from './pages/ProblemDetailPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -16,6 +18,8 @@ export function AppRoutes() {
       <MainLayout apiStatus={status}>
         <Routes>
           <Route path="/" element={<HomePage apiStatus={status} healthData={data} />} />
+          <Route path="/problems" element={<ProblemsPage />} />
+          <Route path="/problems/:id" element={<ProblemDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 

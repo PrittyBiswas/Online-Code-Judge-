@@ -3,6 +3,21 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 13 (2026-11-12)
+
+### Added
+
+- **Frontend Problem List & Problem Details (`apps/frontend/src/`)**:
+  - Added `problemsApi.ts` (`fetchProblems`, `fetchProblemById` with `AbortSignal`), `useDebouncedValue.ts` (`300ms` debounce), and `DifficultyBadge.tsx`.
+  - Added public `/problems` (`ProblemsPage.tsx`) with debounced search, `difficulty` + `tag` AND-filtering, configurable page size (`10`/`20`/`50`), cursor-based Previous/Next pagination using API `nextCursor` (automatically resetting cursors when filters/search change), and loading/empty/no-results/error states.
+  - Added public `/problems/:id` (`ProblemDetailPage.tsx`) supporting UUID or slug lookups, safe plain-text rendering of statements and sample I/O (`whitespace-pre-wrap`), `404` not-found handling, and error retry.
+  - Updated `App.tsx`, `Header.tsx`, `HomePage.tsx`, and `types/index.ts`.
+- **Frontend Problem Tests (`apps/frontend/tests/problems.test.tsx`)**: Added 6 Vitest + React Testing Library tests covering list loading, empty/error states, `300ms` debounced search + AND filters + cursor reset, Previous/Next cursor navigation, stale-request protection, safe problem detail rendering without hidden test/storage exposure, and `404` not-found state.
+
+### Changed
+
+- **Documentation**: Updated `apps/frontend/README.md`, `docs/changelog.md`, `docs/learning-notes.md`, and `docs/project-checklist.md`.
+
 ## [Unreleased] - Day 12 (2026-11-12)
 
 ### Added

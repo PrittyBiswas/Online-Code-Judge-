@@ -115,7 +115,15 @@ This checklist tracks milestone completion across implementation days.
 - [x] Expand unit tests (`apps/api/tests/problems.test.ts`) and add live PostgreSQL + Redis + MinIO integration suite (`apps/api/tests/problems.integration.test.ts`)
 - [x] Update `apps/api/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, `docs/project-checklist.md`, and `docs/known-issues.md`
 
-## Day 13+ — Upcoming Milestones (Not Started Yet)
+## Day 13 — Frontend Problem List & Problem Details
+
+- [x] Add `problemsApi.ts` (`fetchProblems`, `fetchProblemById` with `AbortSignal`), `useDebouncedValue.ts` (`300ms`), `DifficultyBadge.tsx`, and shared type exports in `apps/frontend/src/types/index.ts`
+- [x] Implement public `/problems` (`ProblemsPage.tsx`) with debounced search, `difficulty` + `tag` AND-filtering, cursor-based Previous/Next pagination, cursor reset on filter change, and loading/empty/error states
+- [x] Implement public `/problems/:id` (`ProblemDetailPage.tsx`) supporting UUID/slug, safe plain-text rendering, sample I/O blocks, `404` not-found state, and error retry
+- [x] Wire `/problems` and `/problems/:id` routes (`App.tsx`), header link (`Header.tsx`), and home CTA (`HomePage.tsx`) without altering auth/protected routes
+- [x] Add frontend problem tests (`apps/frontend/tests/problems.test.tsx`) and update `apps/frontend/README.md`, `docs/changelog.md`, `docs/learning-notes.md`, and `docs/project-checklist.md`
+
+## Day 14+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

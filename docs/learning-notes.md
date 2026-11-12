@@ -193,3 +193,15 @@ A code judge uses a message queue because compiling and running code takes varia
    - Instead of running dangerous `KEYS *` scans on write, mutations atomically `INCR judge:cache:problems:list:version` after the DB transaction commits so all stale search/filter/page caches expire naturally.
 4. **Safe MinIO Compensation & Submission-Reference Archival**
    - If `createProblem` uploads test cases to MinIO and the PostgreSQL transaction fails, uploaded MinIO keys are deleted as compensation. If `deleteProblem` finds existing `submissions`, it archives (`is_archived = true`) rather than deleting submission history or MinIO test cases.
+
+---
+
+## Day 13 — Frontend Problem Browsing, Debounced Search & Cursor History
+
+1. **Debounced Search + Stale Request Protection**
+   - Debouncing search and tag inputs by `300ms` (`useDebouncedValue`) avoids firing an API request on every keystroke.
+   - Using `@tanstack/react-query` `queryKey` scoping (`['problems', queryParams]`) paired with `AbortSignal` forwarded to Axios (`fetchProblems(queryParams, signal)`) cancels superseded requests and guarantees older slow responses never overwrite newer results.
+2. **Cursor Stack for Previous / Next Pagination**
+   - Because the API uses opaque keyset cursors (`nextCursor`) instead of page numbers, `ProblemsPage` keeps a local `cursorStack` of visited cursors. Clicking **Next** pushes the current cursor and advances to `nextCursor`; clicking **Previous** pops back cleanly, and changing any filter or search resets the stack to page 1.
+3. **Safe Text Rendering**
+   - Problem statements and sample I/O are rendered strictly as React text nodes (`whitespace-pre-wrap`) inside `<p>` and `<pre><code>`, never `dangerouslySetInnerHTML`, preventing XSS even if a statement contains `<script>` tags.
