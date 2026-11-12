@@ -30,4 +30,24 @@ describe('Leaderboard Score Encoding (Card 6 & AC-LB-04)', () => {
     expect(decoded.problemsSolved).toBe(problems);
     expect(decoded.totalPenaltySeconds).toBe(penalty);
   });
+
+  it('handles uninitialized zero score and zero-penalty first solve without overflow', () => {
+    expect(decodeLeaderboardScore(0)).toEqual({ problemsSolved: 0, totalPenaltySeconds: 0 });
+
+    const firstZeroPenalty = encodeLeaderboardScore(1, 0);
+    expect(decodeLeaderboardScore(firstZeroPenalty)).toEqual({
+      problemsSolved: 1,
+      totalPenaltySeconds: 0,
+    });
+
+    const decoded = decodeLeaderboardScore(firstZeroPenalty);
+    const secondSolve = encodeLeaderboardScore(
+      decoded.problemsSolved + 1,
+      decoded.totalPenaltySeconds + 5
+    );
+    expect(decodeLeaderboardScore(secondSolve)).toEqual({
+      problemsSolved: 2,
+      totalPenaltySeconds: 5,
+    });
+  });
 });

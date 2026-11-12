@@ -73,8 +73,16 @@ This checklist tracks milestone completion across implementation days.
 - [x] Expand unit tests (`worker-unit.test.ts`) and live integration tests (`worker.integration.test.ts`) covering recovery, concurrent claims, error classification, output/memory limits, and container cleanup
 - [x] Update `apps/judge-worker/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
 
-## Day 8+ — Upcoming Milestones (Not Started Yet)
+## Day 8 — Judge Engine Testing & Edge Cases
+
+- [x] Expand unit tests for output comparison (`CRLF`/`LF`, whitespace/tabs, Unicode, large outputs) and submission schema validation (`packages/shared/tests/`)
+- [x] Expand judge worker unit tests for hidden-test redaction, large test suites, corrupted/empty payloads, and exit code `125`/`126`/`127` handling (`apps/judge-worker/tests/worker-unit.test.ts`)
+- [x] Verify live Docker isolation (`attack-suite`: network, filesystem, fork-bomb, privilege escalation) and JS/Python I/O + resource limits with zero leaked containers (`apps/judge-worker/tests/worker.integration.test.ts`)
+- [x] Verify full API + PostgreSQL + BullMQ + MinIO/Silo + Worker + SSE + Leaderboard flow (`apps/api/tests/postgres.integration.test.ts`, `apps/judge-worker/tests/worker.integration.test.ts`)
+- [x] Fix verified Day 8 bugs: user exit `125`/`126`/`127` misclassification (`runner.ts`), async Redis SSE readiness (`sse.ts`), and corrupted/empty worker payload guards (`judgeProcessor.ts`)
+- [x] Update `docs/learning-notes.md`, `apps/judge-worker/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
+
+## Day 9+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs
-- [ ] End-to-end attack-suite security verification

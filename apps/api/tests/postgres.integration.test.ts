@@ -2,13 +2,15 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'http';
 import crypto from 'crypto';
 import { eq, inArray } from 'drizzle-orm';
-import { Role, ProblemDifficulty, SubmissionStatus, Verdict } from '@judge/shared';
+import { Role, ProblemDifficulty, REDIS_KEYS, SubmissionStatus, Verdict } from '@judge/shared';
 import { db, checkDatabaseConnection, closeDatabase } from '../src/db/index.js';
+import { redisClient, redisSubscriber, isRedisHealthy } from '../src/config/redis.js';
 import { problems, submissions, testCases, users } from '../src/db/schema.js';
 import { authService } from '../src/modules/auth/auth.service.js';
 import { usersService } from '../src/modules/users/users.service.js';
 import { problemsService } from '../src/modules/problems/problems.service.js';
 import { submissionsService } from '../src/modules/submissions/submissions.service.js';
+import { leaderboardService } from '../src/modules/leaderboard/leaderboard.service.js';
 import { AppError } from '../src/utils/app-error.js';
 import { app } from '../src/app.js';
 
@@ -45,6 +47,14 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
       );
     }
 
+    if (redisClient.status === 'wait') {
+      await redisClient.connect();
+    }
+    if (redisSubscriber.status === 'wait') {
+      await redisSubscriber.connect();
+    }
+    await new Promise((r) => setTimeout(r, 100));
+
     await new Promise<void>((resolve) => {
       server = app.listen(0, '127.0.0.1', () => {
         const addr = server.address();
@@ -69,6 +79,18 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
       await db.delete(submissions).where(inArray(submissions.userId, createdUserIds));
       await db.delete(problems).where(inArray(problems.setterId, createdUserIds));
       await db.delete(users).where(inArray(users.id, createdUserIds));
+      if (isRedisHealthy()) {
+        for (const uid of createdUserIds) {
+          await redisClient.del(`judge:user:${uid}:solved`).catch(() => {});
+          await redisClient.zrem(REDIS_KEYS.GLOBAL_LEADERBOARD, uid).catch(() => {});
+        }
+      }
+    }
+    if (redisSubscriber.status === 'ready') {
+      await redisSubscriber.quit().catch(() => {});
+    }
+    if (redisClient.status === 'ready') {
+      await redisClient.quit().catch(() => {});
     }
     await closeDatabase();
   });
@@ -312,4 +334,104 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     );
     expect(missingRes.status).toBe(404);
   });
+
+  it('HTTP malformed submissions, SSE live updates (/api/submissions/:id/live), and leaderboard integration', async () => {
+    const reg = await dispatchHttp('POST', '/api/auth/register', {
+      body: {
+        username: `edge_${runTag}`,
+        email: `edge_${runTag}@judge.local`,
+        password: 'EdgeUserPass123!',
+        role: Role.ADMIN,
+      },
+    });
+    expect(reg.status).toBe(201);
+    const userId = reg.body.data.user.id as string;
+    const token = reg.body.data.token as string;
+    createdUserIds.push(userId);
+
+    const probRes = await dispatchHttp('POST', '/api/problems', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        title: `Edge SSE Problem ${runTag}`,
+        statement: 'Return echo',
+        difficulty: ProblemDifficulty.EASY,
+        tags: [`edge-${runTag}`],
+        sampleInput: '1',
+        sampleExpectedOutput: '1',
+      },
+    });
+    expect(probRes.status).toBe(201);
+    const problemId = probRes.body.data.problem.id as string;
+    createdProblemIds.push(problemId);
+
+    // 1. Malformed payloads rejected cleanly with HTTP 400 (not 500)
+    const emptyCodeRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { problemId, code: '', language: 'javascript' },
+    });
+    expect(emptyCodeRes.status).toBe(400);
+
+    const missingCodeRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { problemId, language: 'javascript' },
+    });
+    expect(missingCodeRes.status).toBe(400);
+
+    const badLangRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { problemId, code: 'print(1)', language: 'rust' },
+    });
+    expect(badLangRes.status).toBe(400);
+
+    const missingProbRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { code: 'console.log(1)', language: 'javascript' },
+    });
+    expect(missingProbRes.status).toBe(400);
+
+    // 2. Valid submission -> verify SSE catch-up stream & Redis Pub/Sub live verdict event
+    const subRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { problemId, code: 'console.log(1)', language: 'javascript' },
+    });
+    expect(subRes.status).toBe(202);
+    const submissionId = subRes.body.data.id as string;
+
+    // Wait briefly so SSE Redis subscriber is active before streaming
+    const ssePromise = fetch(`${baseUrl}/api/submissions/${submissionId}/live`, {
+      signal: AbortSignal.timeout(8000),
+    }).then(async (res) => {
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      return res.text();
+    });
+
+    await new Promise((r) => setTimeout(r, 250));
+    await redisClient.publish(
+      REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS,
+      JSON.stringify({
+        submissionId,
+        status: Verdict.ACCEPTED,
+        verdict: Verdict.ACCEPTED,
+        executionTimeMs: 35,
+        memoryUsedKb: 16384,
+        timestamp: Date.now(),
+      })
+    );
+
+    const sseBody = await ssePromise;
+    expect(sseBody).toContain('data:');
+    expect(sseBody).toContain(Verdict.ACCEPTED);
+
+    // 3. Leaderboard integration: idempotent solve recording + HTTP retrieval
+    await leaderboardService.recordSolve(userId, problemId, 5);
+    await leaderboardService.recordSolve(userId, problemId, 99); // Duplicate solve must not double-count
+
+    const lbRes = await dispatchHttp('GET', '/api/leaderboard');
+    expect(lbRes.status).toBe(200);
+    const entry = (lbRes.body.data.leaderboard as any[]).find((e) => e.userId === userId);
+    expect(entry).toBeDefined();
+    expect(entry.problemsSolved).toBe(1);
+    expect(entry.totalPenaltySeconds).toBe(5);
+  }, 15000);
 });

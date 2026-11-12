@@ -241,16 +241,19 @@ export function classifySandboxOutcome(params: {
       };
     }
 
-    // Docker CLI reserves exit codes 125 (daemon/run flag error), 126 (cannot invoke), 127 (command missing)
-    const isContainerStartError =
-      exitCode === 125 ||
-      exitCode === 126 ||
-      exitCode === 127 ||
+    // Docker CLI reserves exit codes 125 (daemon/run flag error), 126 (cannot invoke), 127 (command missing).
+    // Only classify as container startup failure if our language bootstrap never ran (no memory/compile marker).
+    const bootstrapStarted =
+      rawStderr.includes(COMPILE_ERROR_MARKER) || rawStderr.includes('__JUDGE_MEMORY_KB:');
+    const isDockerImageError =
       lowerErr.includes('unable to find image') ||
       lowerErr.includes('pull access denied') ||
       lowerErr.includes('no such image');
+    const isContainerStartError =
+      isDockerImageError ||
+      (!bootstrapStarted && (exitCode === 125 || exitCode === 126 || exitCode === 127));
 
-    if (isContainerStartError && !rawStderr.includes(COMPILE_ERROR_MARKER)) {
+    if (isContainerStartError) {
       return {
         verdict: Verdict.INTERNAL_ERROR,
         stdout: '',

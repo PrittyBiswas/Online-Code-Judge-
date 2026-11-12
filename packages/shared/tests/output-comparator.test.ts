@@ -46,4 +46,34 @@ describe('Output Comparator (AC-SJ-09 / Part 1 M3)', () => {
     expect(normalizeOutput(outputWithNull)).toBe(cleanOutput);
     expect(compareOutputs(outputWithNull, cleanOutput)).toBe(true);
   });
+
+  it('handles output with and without a final newline consistently', () => {
+    expect(compareOutputs('alpha\nbeta', 'alpha\nbeta\n')).toBe(true);
+    expect(compareOutputs('alpha\nbeta\r\n', 'alpha\nbeta\n\n')).toBe(true);
+    expect(compareOutputs('alpha\r\nbeta\n  \n', 'alpha\nbeta')).toBe(true);
+  });
+
+  it('preserves leading whitespace and internal multiple spaces or tabs', () => {
+    expect(compareOutputs('  leading\tvalue', '  leading\tvalue  \t')).toBe(true);
+    expect(compareOutputs('\tleading', 'leading')).toBe(false);
+    expect(compareOutputs('a\tb', 'a b')).toBe(false);
+    expect(compareOutputs('x   y\nz  w', 'x   y\nz w')).toBe(false);
+  });
+
+  it('compares special characters and Unicode accurately', () => {
+    const unicode = '{"msg":"café 🚀 α+β ≈ Σ","path":"C:\\\\dir\\\\file"}  \r\n';
+    const expected = '{"msg":"café 🚀 α+β ≈ Σ","path":"C:\\\\dir\\\\file"}\n';
+    expect(compareOutputs(unicode, expected)).toBe(true);
+    expect(compareOutputs('café 🚀', 'cafe 🚀')).toBe(false);
+  });
+
+  it('compares large outputs efficiently without truncation or false positives', () => {
+    const lines = Array.from({ length: 8000 }, (_, i) => `row-${i}: ${'x'.repeat(16)}`);
+    const expected = lines.join('\n');
+    const actualWithTrailingWhitespace = lines.map((l) => `${l}   `).join('\r\n') + '\r\n\n';
+    expect(compareOutputs(actualWithTrailingWhitespace, expected)).toBe(true);
+
+    const differingLastLine = [...lines.slice(0, -1), 'row-7999: tampered'].join('\n');
+    expect(compareOutputs(differingLastLine, expected)).toBe(false);
+  });
 });

@@ -74,6 +74,51 @@ pnpm infra:verify
 
 ---
 
+## Verdict Matrix, Edge Cases & Known Limitations
+
+| Scenario                                                  | Verdict / Behavior                                                                    |
+| :-------------------------------------------------------- | :------------------------------------------------------------------------------------ |
+| All test cases pass (`CRLF`/`LF`, trailing spaces/lines)  | `ACCEPTED`                                                                            |
+| Mismatched content, leading/internal spaces, or tabs      | `WRONG_ANSWER` (`failedTestIndex` set; hidden test contents redacted)                 |
+| Invalid JS/Python syntax                                  | `COMPILATION_ERROR`                                                                   |
+| Exception, `process.exit(127)`, network dial, root FS err | `RUNTIME_ERROR`                                                                       |
+| Infinite loop or DNS stall in `--network none`            | `TIME_LIMIT_EXCEEDED`                                                                 |
+| Exceeding `--memory` (`137`/`SIGKILL`/`MemoryError`/heap) | `MEMORY_LIMIT_EXCEEDED`                                                               |
+| Exceeding `SANDBOX_OUTPUT_LIMIT_BYTES` (default 64 KB)    | `OUTPUT_LIMIT_EXCEEDED`                                                               |
+| Unsupported language / empty code / missing test object   | `INTERNAL_ERROR` + `PermanentWorkerError` (no retry)                                  |
+| Corrupted/null BullMQ job payload                         | `PermanentWorkerError('INVALID_JOB_DATA')` (no crash, no `RUNNING` lock)              |
+| Docker daemon offline / DB transient failure              | Releases `RUNNING -> QUEUED` and throws `RetryableWorkerError` for backoff retry      |
+
+**Known Limitations**:
+- In `JS_BOOTSTRAP`, synchronous `fs.readFileSync(0, 'utf8')` buffers `{ code, input }` inside the container and `/tmp` tmpfs is capped at `16m`; multi-megabyte inputs (>16 MB) exceed container scratch limits by design.
+- Default `SANDBOX_OUTPUT_LIMIT_BYTES` is `65536` bytes (64 KB) unless configured higher via env (`maxOutputBytes`, up to `1048576` in `.env` / `env.ts`).
+- `http.get('http://google.com')` with DNS resolution inside `--network none` may stall until `timeLimitMs` (`TIME_LIMIT_EXCEEDED`), whereas direct IP sockets (`net.connect(80, '1.1.1.1')`) fail immediately (`RUNTIME_ERROR`); both completely prevent network access.
+
+---
+
+## Verdict Matrix, Edge Cases & Known Limitations
+
+| Scenario                                                  | Verdict / Behavior                                                               |
+| :-------------------------------------------------------- | :------------------------------------------------------------------------------- |
+| All test cases pass (`CRLF`/`LF`, trailing spaces/lines)  | `ACCEPTED`                                                                       |
+| Mismatched content, leading/internal spaces, or tabs      | `WRONG_ANSWER` (`failedTestIndex` set; hidden test contents redacted)            |
+| Invalid JS/Python syntax                                  | `COMPILATION_ERROR`                                                              |
+| Exception, `process.exit(127)`, network dial, root FS err | `RUNTIME_ERROR`                                                                  |
+| Infinite loop or DNS stall in `--network none`            | `TIME_LIMIT_EXCEEDED`                                                            |
+| Exceeding `--memory` (`137`/`SIGKILL`/`MemoryError`/heap) | `MEMORY_LIMIT_EXCEEDED`                                                          |
+| Exceeding `SANDBOX_OUTPUT_LIMIT_BYTES` (default 64 KB)    | `OUTPUT_LIMIT_EXCEEDED`                                                          |
+| Unsupported language / empty code / missing test object   | `INTERNAL_ERROR` + `PermanentWorkerError` (no retry)                             |
+| Corrupted/null BullMQ job payload                         | `PermanentWorkerError('INVALID_JOB_DATA')` (no crash, no `RUNNING` lock)         |
+| Docker daemon offline / DB transient failure              | Releases `RUNNING -> QUEUED` and throws `RetryableWorkerError` for backoff retry |
+
+**Known Limitations**:
+
+- In `JS_BOOTSTRAP`, synchronous `fs.readFileSync(0, 'utf8')` buffers `{ code, input }` inside the container and `/tmp` tmpfs is capped at `16m`; multi-megabyte inputs (>16 MB) exceed container scratch limits by design.
+- Default `SANDBOX_OUTPUT_LIMIT_BYTES` is `65536` bytes (64 KB) unless configured higher via env (`maxOutputBytes`, up to `1048576` in `.env` / `env.ts`).
+- `http.get('http://google.com')` with DNS resolution inside `--network none` may stall until `timeLimitMs` (`TIME_LIMIT_EXCEEDED`), whereas direct IP sockets (`net.connect(80, '1.1.1.1')`) fail immediately (`RUNTIME_ERROR`); both completely prevent network access.
+
+---
+
 ## Commands (Windows PowerShell)
 
 From the monorepo root:

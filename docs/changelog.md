@@ -3,6 +3,23 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 8 (2026-11-12)
+
+### Added
+
+- **Comprehensive Judge Edge-Case & E2E Test Coverage (`packages/shared/tests/`, `apps/api/tests/postgres.integration.test.ts`, `apps/judge-worker/tests/`)**:
+  - Output comparator & Zod schema edge cases (CRLF/LF, trailing vs leading/internal tabs & spaces, Unicode, empty/null inputs, 8000-line large outputs, empty code/unsupported language/missing `problemId` validation).
+  - Judge worker unit tests covering hidden-test redaction, 25-test collection metric aggregation, null/corrupted payloads, empty source code, unsupported languages, archived problems, and exit code `125`/`126`/`127` classification.
+  - Live integration & security isolation tests exercising JS & Python empty/Unicode/CRLF/120 KB I/O, immediate exit, `process.exit(127)`, Python RE/TLE, live `attack-suite` (`network-attempt`, direct TCP dial, `file-access`, `fork-bomb`, `privilege-check`), HTTP malformed requests -> 400, SSE `/api/submissions/:id/live`, Redis Pub/Sub events, and idempotent leaderboard scoring.
+- **Documentation Updates**: Updated `docs/learning-notes.md`, `apps/judge-worker/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`.
+
+### Fixed
+
+- **Sandbox User Exit Code 125/126/127 Disambiguation (`apps/judge-worker/src/sandbox/runner.ts`)**: Checked runtime bootstrap markers (`__JUDGE_MEMORY_KB:` / `__JUDGE_COMPILE_ERROR__`) before treating exit codes `125`/`126`/`127` as `SANDBOX_CONTAINER_START_FAILED`, ensuring `process.exit(127)` / `sys.exit(125)` returns `RUNTIME_ERROR`.
+- **Async Redis SSE Subscription (`apps/api/src/events/sse.ts`)**: Attached `redisSubscriber.on('ready', ...)` listener in `SSEManager` so SSE live streams always subscribe even when Redis connects asynchronously after module startup.
+- **Worker Malformed Payload Guards & Terminal SSE Publishing (`apps/judge-worker/src/processor/judgeProcessor.ts`)**: Safely handled null/corrupted `jobData`, empty/whitespace source code, and unified permanent failure finalization (`INTERNAL_ERROR` DB save + SSE broadcast).
+- **Leaderboard Score Encoding & Uninitialized Decode (`packages/shared/src/utils/score.ts`)**: Returned `{ problemsSolved: 0, totalPenaltySeconds: 0 }` for `score <= 0` and encoded remainder with `MAX_PENALTY = PENALTY_OFFSET - 1` so first solves and zero-second solves never overflow `problemsSolved` or inflate penalty to `9,999,999`.
+
 ## [Unreleased] - Day 7 (2026-11-11)
 
 ### Added

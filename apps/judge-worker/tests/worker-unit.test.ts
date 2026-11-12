@@ -757,3 +757,276 @@ describe('Judge Worker Reliability & Recovery Unit Tests (Day 7)', () => {
     ).toBe(false);
   });
 });
+
+describe('Judge Engine Edge Cases & Malformed Input Unit Tests (Day 8)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('evaluates hidden test cases without leaking hidden inputs/outputs and aggregates metrics across large collections', async () => {
+    const { submissionId, problemId, userId, problem, submission } = makeFixtures();
+
+    // 25 test cases, test 0 is empty input (''), test 17 is hidden and fails
+    const manyTests: TestCaseRow[] = Array.from({ length: 25 }, (_, i) => ({
+      id: crypto.randomUUID(),
+      problemId,
+      index: i,
+      inputKey: `problems/${problemId}/test_${i}_in.txt`,
+      expectedOutputKey: `problems/${problemId}/test_${i}_out.txt`,
+      isHidden: i > 0,
+      createdAt: new Date(),
+    }));
+
+    const saveFinalVerdict = vi.fn().mockResolvedValue(true);
+    const repo = makeMockRepository({
+      getSubmissionById: vi.fn().mockResolvedValue(submission),
+      claimSubmissionRunning: vi
+        .fn()
+        .mockResolvedValue({ ...submission, status: SubmissionStatus.RUNNING }),
+      getProblemById: vi.fn().mockResolvedValue(problem),
+      getTestCasesByProblemId: vi.fn().mockResolvedValue(manyTests),
+      saveFinalVerdict,
+    });
+
+    const storage: StorageReader = {
+      getObject: vi.fn(async (key: string) => {
+        if (key.includes('test_0_in.txt')) return '';
+        if (key.includes('_in.txt')) return 'secret input';
+        return 'expected-ok';
+      }),
+    };
+
+    const sandboxRunner = vi.fn(async (opts: { input: string }) => {
+      const callIdx = sandboxRunner.mock.calls.length - 1;
+      if (callIdx === 0) expect(opts.input).toBe('');
+      return {
+        verdict: Verdict.ACCEPTED,
+        stdout: callIdx === 17 ? 'wrong-secret' : 'expected-ok',
+        stderr: '',
+        executionTimeMs: callIdx === 10 ? 95 : 15,
+        memoryUsedKb: callIdx === 5 ? 32768 : 12000,
+        exitCode: 0,
+      };
+    });
+
+    const publish = vi.fn().mockResolvedValue(1);
+    const result = await processSubmissionJob(
+      { submissionId },
+      {
+        repository: repo,
+        storage,
+        executor: new Executor(sandboxRunner),
+        redisPublisher: { status: 'ready', publish } as any,
+      }
+    );
+
+    expect(result.verdict).toBe(Verdict.WRONG_ANSWER);
+    expect(result.failedTestIndex).toBe(17);
+    expect(result.executionTimeMs).toBe(95);
+    expect(result.memoryUsedKb).toBe(32768);
+    expect(sandboxRunner).toHaveBeenCalledTimes(18); // Stopped early at index 17
+    expect(saveFinalVerdict).toHaveBeenCalledWith({
+      id: submissionId,
+      verdict: Verdict.WRONG_ANSWER,
+      executionTimeMs: 95,
+      memoryUsedKb: 32768,
+      failedTestIndex: 17,
+    });
+
+    // Verify Evaluator redacts hidden test details directly (public test passes, hidden test 1 fails)
+    const directRunner = vi
+      .fn()
+      .mockResolvedValueOnce({
+        verdict: Verdict.ACCEPTED,
+        stdout: 'pub-out',
+        stderr: '',
+        executionTimeMs: 5,
+        memoryUsedKb: 8000,
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        verdict: Verdict.ACCEPTED,
+        stdout: 'actual-secret',
+        stderr: '',
+        executionTimeMs: 5,
+        memoryUsedKb: 8000,
+        exitCode: 0,
+      });
+    const evalSuite = new Executor(directRunner);
+    const direct = await evalSuite.execute(
+      {
+        submissionId,
+        problemId,
+        userId,
+        code: 'console.log(1)',
+        language: 'javascript',
+        timeLimitMs: 2000,
+        memoryLimitMb: 128,
+      },
+      [
+        { index: 0, input: 'pub-in', expectedOutput: 'pub-out', isHidden: false },
+        { index: 1, input: 'hid-in', expectedOutput: 'hid-out', isHidden: true },
+      ]
+    );
+    expect(direct.results[0].sampleInput).toBe('pub-in');
+    expect(direct.results[1].sampleInput).toBeUndefined();
+    expect(direct.results[1].sampleExpectedOutput).toBeUndefined();
+    expect(direct.results[1].actualOutput).toBeUndefined();
+  });
+
+  it('accepts only when all 25 test cases pass and credits leaderboard idempotently', async () => {
+    const { submissionId, problemId, userId, problem, submission } = makeFixtures();
+    const tests: TestCaseRow[] = Array.from({ length: 12 }, (_, i) => ({
+      id: crypto.randomUUID(),
+      problemId,
+      index: i,
+      inputKey: `problems/${problemId}/test_${i}_in.txt`,
+      expectedOutputKey: `problems/${problemId}/test_${i}_out.txt`,
+      isHidden: i > 0,
+      createdAt: new Date(),
+    }));
+
+    const repo = makeMockRepository({
+      getSubmissionById: vi.fn().mockResolvedValue(submission),
+      claimSubmissionRunning: vi
+        .fn()
+        .mockResolvedValue({ ...submission, status: SubmissionStatus.RUNNING }),
+      getProblemById: vi.fn().mockResolvedValue(problem),
+      getTestCasesByProblemId: vi.fn().mockResolvedValue(tests),
+      saveFinalVerdict: vi.fn().mockResolvedValue(true),
+    });
+    const storage: StorageReader = {
+      getObject: vi.fn().mockResolvedValue('42\n'),
+    };
+    const sandboxRunner = vi.fn().mockResolvedValue({
+      verdict: Verdict.ACCEPTED,
+      stdout: '42\r\n',
+      stderr: '',
+      executionTimeMs: 20,
+      memoryUsedKb: 14000,
+      exitCode: 0,
+    });
+
+    const redisPublisher = {
+      status: 'ready',
+      publish: vi.fn().mockResolvedValue(1),
+      sadd: vi.fn().mockResolvedValue(1),
+      zscore: vi.fn().mockResolvedValue(null),
+      zadd: vi.fn().mockResolvedValue(1),
+    } as any;
+
+    const res = await processSubmissionJob(
+      { submissionId },
+      {
+        repository: repo,
+        storage,
+        executor: new Executor(sandboxRunner),
+        redisPublisher,
+      }
+    );
+
+    expect(res.verdict).toBe(Verdict.ACCEPTED);
+    expect(sandboxRunner).toHaveBeenCalledTimes(12);
+    expect(redisPublisher.sadd).toHaveBeenCalledWith(`judge:user:${userId}:solved`, problemId);
+    expect(redisPublisher.zadd).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects null/corrupted payloads, empty source code, unsupported languages, and archived problems safely', async () => {
+    const publish = vi.fn().mockResolvedValue(1);
+    const redisPublisher = { status: 'ready', publish } as any;
+
+    // 1. Null / corrupted payload throws PermanentWorkerError instead of crashing with TypeError
+    await expect(processSubmissionJob(null as any)).rejects.toBeInstanceOf(PermanentWorkerError);
+    await expect(processSubmissionJob({} as any)).rejects.toBeInstanceOf(PermanentWorkerError);
+
+    // 2. Empty or whitespace-only source code marks INTERNAL_ERROR, emits SSE, throws PermanentWorkerError
+    const { submissionId, problem, submission } = makeFixtures();
+    const saveEmptyCode = vi.fn().mockResolvedValue(true);
+    const repoEmptyCode = makeMockRepository({
+      getSubmissionById: vi.fn().mockResolvedValue(submission),
+      claimSubmissionRunning: vi.fn().mockResolvedValue({
+        ...submission,
+        code: '   \n\t  ',
+        status: SubmissionStatus.RUNNING,
+      }),
+      getProblemById: vi.fn().mockResolvedValue(problem),
+      saveFinalVerdict: saveEmptyCode,
+    });
+
+    await expect(
+      processSubmissionJob({ submissionId }, { repository: repoEmptyCode, redisPublisher })
+    ).rejects.toBeInstanceOf(PermanentWorkerError);
+    expect(saveEmptyCode).toHaveBeenCalledWith(
+      expect.objectContaining({ id: submissionId, verdict: Verdict.INTERNAL_ERROR })
+    );
+    expect(repoEmptyCode.releaseSubmissionToQueued).not.toHaveBeenCalled();
+
+    // 3. Unsupported language
+    const saveBadLang = vi.fn().mockResolvedValue(true);
+    const repoBadLang = makeMockRepository({
+      getSubmissionById: vi.fn().mockResolvedValue(submission),
+      claimSubmissionRunning: vi.fn().mockResolvedValue({
+        ...submission,
+        language: 'rust',
+        status: SubmissionStatus.RUNNING,
+      }),
+      getProblemById: vi.fn().mockResolvedValue(problem),
+      saveFinalVerdict: saveBadLang,
+    });
+
+    await expect(
+      processSubmissionJob({ submissionId }, { repository: repoBadLang, redisPublisher })
+    ).rejects.toBeInstanceOf(PermanentWorkerError);
+    expect(saveBadLang).toHaveBeenCalledWith(
+      expect.objectContaining({ id: submissionId, verdict: Verdict.INTERNAL_ERROR })
+    );
+
+    // 4. Archived / missing problem
+    const saveArchived = vi.fn().mockResolvedValue(true);
+    const repoArchived = makeMockRepository({
+      getSubmissionById: vi.fn().mockResolvedValue(submission),
+      claimSubmissionRunning: vi.fn().mockResolvedValue({
+        ...submission,
+        status: SubmissionStatus.RUNNING,
+      }),
+      getProblemById: vi.fn().mockResolvedValue({ ...problem, isArchived: true }),
+      saveFinalVerdict: saveArchived,
+    });
+
+    await expect(
+      processSubmissionJob({ submissionId }, { repository: repoArchived, redisPublisher })
+    ).rejects.toBeInstanceOf(PermanentWorkerError);
+    expect(saveArchived).toHaveBeenCalledWith(
+      expect.objectContaining({ id: submissionId, verdict: Verdict.INTERNAL_ERROR })
+    );
+  });
+
+  it('distinguishes user process.exit(125/126/127) RUNTIME_ERROR from real Docker startup failure', () => {
+    const userExit127 = classifySandboxOutcome({
+      timedOut: false,
+      outputExceeded: false,
+      error: new Error('Command failed with exit code 127'),
+      exitCode: 127,
+      rawStdout: '',
+      rawStderr: '__JUDGE_MEMORY_KB:14000__\n',
+      durationMs: 45,
+      memoryLimitMb: 128,
+    });
+    expect(userExit127.verdict).toBe(Verdict.RUNTIME_ERROR);
+    expect(userExit127.infraFailureCategory).toBeUndefined();
+    expect(userExit127.memoryUsedKb).toBe(14000);
+
+    const realDocker127 = classifySandboxOutcome({
+      timedOut: false,
+      outputExceeded: false,
+      error: new Error('docker run failed'),
+      exitCode: 127,
+      rawStdout: '',
+      rawStderr: 'docker: exec: "node": executable file not found in $PATH',
+      durationMs: 22,
+      memoryLimitMb: 128,
+    });
+    expect(realDocker127.verdict).toBe(Verdict.INTERNAL_ERROR);
+    expect(realDocker127.infraFailureCategory).toBe('SANDBOX_CONTAINER_START_FAILED');
+  });
+});

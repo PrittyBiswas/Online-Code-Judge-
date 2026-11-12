@@ -221,6 +221,44 @@ async function publishRunningEvent(redisPublisher: Redis | null | undefined, sub
   } catch {}
 }
 
+async function failPermanentlyWithInternalError(params: {
+  submissionId: string;
+  problemId: string;
+  userId: string;
+  failedTestIndex?: number;
+  category: WorkerFailureCategory;
+  message: string;
+  repository: JudgeRepository;
+  vHandler: VerdictHandler;
+  redisPublisher: Redis | null;
+}): Promise<never> {
+  await params.vHandler
+    .processVerdict({
+      submissionId: params.submissionId,
+      problemId: params.problemId,
+      userId: params.userId,
+      evaluation: {
+        finalVerdict: Verdict.INTERNAL_ERROR,
+        failedTestIndex: params.failedTestIndex,
+        results: [],
+        maxExecutionTimeMs: 0,
+        maxMemoryUsedKb: 0,
+      },
+      dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
+        params.repository.saveFinalVerdict({
+          id,
+          verdict,
+          executionTimeMs,
+          memoryUsedKb,
+          failedTestIndex,
+        }),
+      redisPublisher: params.redisPublisher,
+    })
+    .catch(() => {});
+
+  throw new PermanentWorkerError(params.category, params.message);
+}
+
 /**
  * Processes a single queued submission job with atomic claiming, failure classification,
  * safe release on retryable failures, and structured observability.
@@ -239,8 +277,8 @@ export async function processSubmissionJob(
   const attemptNumber = deps.context?.attemptNumber ?? 1;
   const allowRetryReclaim = deps.context?.allowRetryReclaim ?? attemptNumber > 1;
 
-  const submissionId = jobData.submissionId;
-  if (!submissionId || !UUID_REGEX.test(submissionId)) {
+  const submissionId = jobData && typeof jobData === 'object' ? jobData.submissionId : undefined;
+  if (typeof submissionId !== 'string' || !UUID_REGEX.test(submissionId)) {
     throw new PermanentWorkerError('INVALID_JOB_DATA', 'Invalid or missing submission ID');
   }
 
@@ -320,29 +358,42 @@ export async function processSubmissionJob(
     });
 
     if (!problem || problem.isArchived) {
-      await repository.saveFinalVerdict({
-        id: submissionId,
-        verdict: Verdict.INTERNAL_ERROR,
-        executionTimeMs: 0,
-        memoryUsedKb: 0,
+      return await failPermanentlyWithInternalError({
+        submissionId,
+        problemId: claimed.problemId,
+        userId: claimed.userId,
+        category: 'PROBLEM_NOT_FOUND',
+        message: `Problem "${claimed.problemId}" not found or archived`,
+        repository,
+        vHandler,
+        redisPublisher,
       });
-      throw new PermanentWorkerError(
-        'PROBLEM_NOT_FOUND',
-        `Problem "${claimed.problemId}" not found or archived`
-      );
     }
 
     if (claimed.language !== 'javascript' && claimed.language !== 'python') {
-      await repository.saveFinalVerdict({
-        id: submissionId,
-        verdict: Verdict.INTERNAL_ERROR,
-        executionTimeMs: 0,
-        memoryUsedKb: 0,
+      return await failPermanentlyWithInternalError({
+        submissionId,
+        problemId: claimed.problemId,
+        userId: claimed.userId,
+        category: 'UNSUPPORTED_LANGUAGE',
+        message: `Unsupported language "${claimed.language}"`,
+        repository,
+        vHandler,
+        redisPublisher,
       });
-      throw new PermanentWorkerError(
-        'UNSUPPORTED_LANGUAGE',
-        `Unsupported language "${claimed.language}"`
-      );
+    }
+
+    if (typeof claimed.code !== 'string' || claimed.code.trim().length === 0) {
+      return await failPermanentlyWithInternalError({
+        submissionId,
+        problemId: claimed.problemId,
+        userId: claimed.userId,
+        category: 'INVALID_JOB_DATA',
+        message: `Submission "${submissionId}" has empty or missing source code`,
+        repository,
+        vHandler,
+        redisPublisher,
+      });
     }
 
     const dbTestCases = await repository.getTestCasesByProblemId(problem.id).catch((err: any) => {
@@ -382,31 +433,17 @@ export async function processSubmissionJob(
             },
             'Missing test case object in MinIO/Silo storage'
           );
-          await vHandler.processVerdict({
+          return await failPermanentlyWithInternalError({
             submissionId,
             problemId: problem.id,
             userId: claimed.userId,
-            evaluation: {
-              finalVerdict: Verdict.INTERNAL_ERROR,
-              failedTestIndex: tc.index,
-              results: [],
-              maxExecutionTimeMs: 0,
-              maxMemoryUsedKb: 0,
-            },
-            dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
-              repository.saveFinalVerdict({
-                id,
-                verdict,
-                executionTimeMs,
-                memoryUsedKb,
-                failedTestIndex,
-              }),
+            failedTestIndex: tc.index,
+            category: 'MISSING_TEST_CASE_OBJECT',
+            message: `Missing object storage file for problem "${problem.id}" test index ${tc.index}`,
+            repository,
+            vHandler,
             redisPublisher,
           });
-          throw new PermanentWorkerError(
-            'MISSING_TEST_CASE_OBJECT',
-            `Missing object storage file for problem "${problem.id}" test index ${tc.index}`
-          );
         }
 
         payloads.push({
@@ -424,16 +461,16 @@ export async function processSubmissionJob(
         isHidden: false,
       });
     } else {
-      await repository.saveFinalVerdict({
-        id: submissionId,
-        verdict: Verdict.INTERNAL_ERROR,
-        executionTimeMs: 0,
-        memoryUsedKb: 0,
+      return await failPermanentlyWithInternalError({
+        submissionId,
+        problemId: claimed.problemId,
+        userId: claimed.userId,
+        category: 'MISSING_TEST_CASES',
+        message: `Problem "${claimed.problemId}" has no executable test cases`,
+        repository,
+        vHandler,
+        redisPublisher,
       });
-      throw new PermanentWorkerError(
-        'MISSING_TEST_CASES',
-        `Problem "${problem.id}" has no executable test cases`
-      );
     }
 
     const executionJob: SubmissionJobData = {

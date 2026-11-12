@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import { eq } from 'drizzle-orm';
-import { redisSubscriber, isRedisHealthy } from '../config/redis.js';
+import { redisSubscriber } from '../config/redis.js';
 import { db } from '../db/index.js';
 import { submissions } from '../db/schema.js';
 import { REDIS_KEYS, SubmissionEvent, SubmissionStatus, Verdict } from '@judge/shared';
@@ -20,28 +20,36 @@ class SSEManager {
     this.setupRedisSubscriber();
   }
 
-  private setupRedisSubscriber() {
-    if (isRedisHealthy()) {
-      try {
-        redisSubscriber.subscribe(REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS, (err) => {
-          if (err) {
-            logger.warn({ err: err.message }, 'Failed to subscribe to Redis submission events');
-          } else {
-            logger.info('Subscribed to Redis submission events pub/sub channel (AC-LV-02)');
-          }
-        });
+  private subscribeToEvents() {
+    try {
+      redisSubscriber.subscribe(REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS, (err) => {
+        if (err) {
+          logger.warn({ err: err.message }, 'Failed to subscribe to Redis submission events');
+        } else {
+          logger.info('Subscribed to Redis submission events pub/sub channel (AC-LV-02)');
+        }
+      });
+    } catch {}
+  }
 
-        redisSubscriber.on('message', (channel, message) => {
-          if (channel === REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS) {
-            try {
-              const event: SubmissionEvent = JSON.parse(message);
-              this.broadcast(event);
-            } catch (err: any) {
-              logger.warn({ err: err.message }, 'Failed to parse incoming SSE Redis event');
-            }
-          }
-        });
-      } catch {}
+  private setupRedisSubscriber() {
+    redisSubscriber.on('message', (channel, message) => {
+      if (channel === REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS) {
+        try {
+          const event: SubmissionEvent = JSON.parse(message);
+          this.broadcast(event);
+        } catch (err: any) {
+          logger.warn({ err: err.message }, 'Failed to parse incoming SSE Redis event');
+        }
+      }
+    });
+
+    redisSubscriber.on('ready', () => {
+      this.subscribeToEvents();
+    });
+
+    if (redisSubscriber.status === 'ready') {
+      this.subscribeToEvents();
     }
   }
 

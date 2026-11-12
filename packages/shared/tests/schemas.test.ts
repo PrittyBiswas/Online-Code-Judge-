@@ -86,6 +86,39 @@ describe('Shared Schema Validations', () => {
       const result = createSubmissionSchema.safeParse(sub);
       expect(result.success).toBe(false);
     });
+
+    it('rejects empty source code, unsupported languages, and missing/invalid problemId', () => {
+      expect(
+        createSubmissionSchema.safeParse({
+          problemId: '123e4567-e89b-12d3-a456-426614174000',
+          code: '',
+          language: 'javascript',
+        }).success
+      ).toBe(false);
+
+      expect(
+        createSubmissionSchema.safeParse({
+          problemId: '123e4567-e89b-12d3-a456-426614174000',
+          code: 'print(1)',
+          language: 'cpp',
+        }).success
+      ).toBe(false);
+
+      expect(
+        createSubmissionSchema.safeParse({
+          problemId: 'not-a-uuid',
+          code: 'console.log(1)',
+          language: 'javascript',
+        }).success
+      ).toBe(false);
+
+      expect(
+        createSubmissionSchema.safeParse({
+          code: 'console.log(1)',
+          language: 'javascript',
+        }).success
+      ).toBe(false);
+    });
   });
 
   describe('Contest Schemas', () => {

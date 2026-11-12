@@ -131,3 +131,17 @@ A code judge uses a message queue because compiling and running code takes varia
 6. **The difference between unit tests and integration tests**
    - **Unit tests** (`pnpm test`) test service rules (like password hashing, validation, cursor logic, and hidden test filtering) fast and offline using mocked database dependencies.
    - **Integration tests** (`pnpm test:integration`) run against the **real PostgreSQL database** (and real HTTP routes) to prove that SQL queries, transactions, unique constraints, foreign keys, and cleanup actually work end-to-end.
+
+---
+
+### 12. Judge Engine Testing, Edge Cases & Sandbox Verification (Day 8)
+
+1. **Output Comparison Rules (`normalizeOutput` / `compareOutputs`)**
+   - Normalizes `\r\n` to `\n`, strips null bytes (`\0`), trims trailing spaces/tabs per line, and strips trailing empty/whitespace-only lines while strictly preserving **leading** whitespace, **internal** tabs/multiple spaces, and Unicode characters.
+2. **Edge Cases & Malformed Input Guards**
+   - Programs producing empty output (`process.exit(0)` / `sys.exit(0)`), large piped inputs (>64 KB OS pipe buffer), Unicode + `CRLF`, hidden multi-test redaction (`isHidden: true` omits inputs/expected/actual outputs), and corrupted/null BullMQ payloads or empty source code must fail safely without leaving rows stuck in `RUNNING`.
+3. **Bugs Found & Fixed During Day 8 Testing**
+   - **Exit codes `125`/`126`/`127` ambiguity (`apps/judge-worker/src/sandbox/runner.ts`)**: User programs exiting with `process.exit(127)` or `sys.exit(125)` were previously misclassified as `SANDBOX_CONTAINER_START_FAILED` (`INTERNAL_ERROR`). Fixed by checking for runtime bootstrap markers (`__JUDGE_MEMORY_KB:` / `__JUDGE_COMPILE_ERROR__`) before classifying exit codes `125`/`126`/`127` as container startup errors.
+   - **Async Redis SSE subscription (`apps/api/src/events/sse.ts`)**: `SSEManager` previously checked `isRedisHealthy()` synchronously at module import time and missed subscribing if Redis finished connecting asynchronously after startup. Fixed by attaching a `'ready'` listener on `redisSubscriber` so SSE always subscribes reliably.
+   - **Corrupted/empty worker payloads (`apps/judge-worker/src/processor/judgeProcessor.ts`)**: Safely guarded null/non-object payloads, empty/whitespace source code, and missing test/problem cases via a shared permanent-failure helper that saves `INTERNAL_ERROR`, publishes the terminal SSE event, and throws `PermanentWorkerError`.
+   - **Leaderboard score encoding (`packages/shared/src/utils/score.ts`)**: Fixed `decodeLeaderboardScore(0)` returning `10,000,000` penalty on uninitialized users (`rawScore === null`) and fixed `encodeLeaderboardScore(1, 0)` off-by-one overflow (`20,000,000` decoding as `2` solved instead of `1`) using `MAX_PENALTY = PENALTY_OFFSET - 1`.
