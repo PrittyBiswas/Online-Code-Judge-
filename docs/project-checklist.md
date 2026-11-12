@@ -138,7 +138,13 @@ This checklist tracks milestone completion across implementation days.
 - [x] Integrate official **Submit** action and bounded `AbortController` polling (`QUEUED -> RUNNING -> Verdict`) into `SampleRunnerPanel.tsx` & `submissionsApi.ts` while keeping **Run Sample** independent
 - [x] Expand backend (`apps/api/tests/submissions.test.ts`) and frontend (`apps/frontend/tests/sample-runner.test.tsx`) tests and update Day 15 documentation
 
-## Day 16+ — Upcoming Milestones (Not Started Yet)
+## Day 16 — Real-Time Submission Updates via Server-Sent Events (SSE)
+
+- [x] Secure `GET /api/submissions/:id/live` with `requireAuth` (`HttpOnly` cookie), `404`/`403` ownership checks, pre-snapshot event buffering, monotonic status guards, payload sanitization, and Redis disconnect cleanup (`apps/api/src/events/sse.ts`)
+- [x] Integrate `EventSource` (`withCredentials: true`) + connection status indicators + bounded polling fallback into `SampleRunnerPanel.tsx` and `submissionsApi.ts`
+- [x] Add backend SSE unit/race tests (`apps/api/tests/sse.test.ts`), expand frontend SSE/fallback tests (`apps/frontend/tests/sample-runner.test.tsx`), and update Day 16 documentation
+
+## Day 17+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

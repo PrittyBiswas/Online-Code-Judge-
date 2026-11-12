@@ -3,6 +3,21 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 16 (2026-11-12)
+
+### Added
+
+- **Authenticated, Race-Safe SSE Endpoint (`apps/api/src/events/sse.ts`)**:
+  - Protected `GET /api/submissions/:id/live` with `requireAuth` (`HttpOnly` cookie) and strict `404` / `403` submission ownership verification before opening `text/event-stream`.
+  - Registered SSE clients before querying PostgreSQL so Pub/Sub events arriving mid-snapshot are buffered and flushed without loss, added monotonic status ranking (`QUEUED < RUNNING < terminal`), stripped non-public fields, cleared keepalive timers on close, and closed non-terminal streams cleanly on Redis drop.
+- **Frontend Live `EventSource` + Polling Fallback (`apps/frontend/src/components/SampleRunnerPanel.tsx`, `submissionsApi.ts`)**:
+  - Connected `EventSource('/api/submissions/:id/live', { withCredentials: true })` on HTTP `202` submission creation, displaying live connection status (`Connecting`, `Live updates connected`, `Reconnecting`, `Using polling fallback`, `Submission completed`), closing on terminal status/unmount/problem change, and falling back seamlessly to bounded polling + `Check Status` without duplicating submissions.
+- **Tests**: Added `apps/api/tests/sse.test.ts` (`3` tests), expanded `apps/frontend/tests/sample-runner.test.tsx` (`8` tests), and updated `postgres.integration.test.ts` SSE request to pass the auth cookie.
+
+### Changed
+
+- **Documentation**: Updated `apps/api/README.md`, `apps/frontend/README.md`, `apps/judge-worker/README.md`, `docs/safety.md`, `docs/test-plan.md`, `docs/changelog.md`, `docs/known-issues.md`, `docs/learning-notes.md`, and `docs/project-checklist.md`.
+
 ## [Unreleased] - Day 15 (2026-11-12)
 
 ### Added

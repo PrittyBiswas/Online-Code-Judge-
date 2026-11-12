@@ -9,6 +9,7 @@ export type {
   SampleRunOutcome,
   SampleRunResult,
   Submission,
+  SubmissionEvent,
   SubmissionStatus,
   Verdict,
 } from '@judge/shared';

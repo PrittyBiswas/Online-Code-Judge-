@@ -101,7 +101,7 @@ pnpm infra:verify
 
 - In addition to `judge-queue`, `startJudgeWorker()` runs a dedicated `sampleWorker` on `sample-run-queue` (`apps/judge-worker/src/processor/sampleRunProcessor.ts`).
 - `processSampleRunJob()` validates `SampleRunJobData` (`type === 'SAMPLE_RUN'`) with Zod, executes `runInSandbox()` using the exact same Docker lockdown flags and resource limits, bounds `stdout`/`stderr` output, and writes `RUNNING`/`COMPLETED`/`FAILED` state to Redis (`judge:sample:job:<runId>`, `300s` TTL) without touching `submissions`, `test_cases`, MinIO, or `leaderboard`.
-- Official judging on `judge-queue` (`processSubmissionJob`) remains strictly separate: it atomically claims `submissions` rows in PostgreSQL, loads all official `test_cases` from MinIO/Silo, stops early on first failure, and persists official verdicts + leaderboard solves idempotently.
+- Official judging on `judge-queue` (`processSubmissionJob`) remains strictly separate: it atomically claims `submissions` rows in PostgreSQL, publishes `RUNNING` and terminal `SubmissionEvent` updates to Redis Pub/Sub (`judge:pubsub:submissions`) for authenticated SSE clients, loads all official `test_cases` from MinIO/Silo, stops early on first failure, and persists official verdicts + leaderboard solves idempotently.
 
 ---
 
@@ -132,7 +132,7 @@ pnpm infra:verify
 
 - In addition to `judge-queue`, `startJudgeWorker()` runs a dedicated `sampleWorker` on `sample-run-queue` (`apps/judge-worker/src/processor/sampleRunProcessor.ts`).
 - `processSampleRunJob()` validates `SampleRunJobData` (`type === 'SAMPLE_RUN'`) with Zod, executes `runInSandbox()` using the exact same Docker lockdown flags and resource limits, bounds `stdout`/`stderr` output, and writes `RUNNING`/`COMPLETED`/`FAILED` state to Redis (`judge:sample:job:<runId>`, `300s` TTL) without touching `submissions`, `test_cases`, MinIO, or `leaderboard`.
-- Official judging on `judge-queue` (`processSubmissionJob`) remains strictly separate: it atomically claims `submissions` rows in PostgreSQL, loads all official `test_cases` from MinIO/Silo, stops early on first failure, and persists official verdicts + leaderboard solves idempotently.
+- Official judging on `judge-queue` (`processSubmissionJob`) remains strictly separate: it atomically claims `submissions` rows in PostgreSQL, publishes `RUNNING` and terminal `SubmissionEvent` updates to Redis Pub/Sub (`judge:pubsub:submissions`) for authenticated SSE clients, loads all official `test_cases` from MinIO/Silo, stops early on first failure, and persists official verdicts + leaderboard solves idempotently.
 
 ---
 

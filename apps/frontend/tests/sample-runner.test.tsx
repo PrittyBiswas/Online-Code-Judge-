@@ -443,4 +443,122 @@ describe('Day 14 — API Client Reliability, Code Editor & Run Sample UI', () =>
     expect(submitSpy).toHaveBeenCalledTimes(1);
     expect(pollSpy).toHaveBeenCalledTimes(4);
   });
+
+  it('tracks official submission via SSE EventSource, closes on terminal verdict or unmount, and falls back to polling on SSE error', async () => {
+    class MockEventSource {
+      static instances: MockEventSource[] = [];
+      static readonly CLOSED = 2;
+      url: string;
+      withCredentials: boolean;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onmessage: ((ev: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn(() => {
+        this.readyState = 2;
+      });
+
+      constructor(url: string, init?: { withCredentials?: boolean }) {
+        this.url = url;
+        this.withCredentials = Boolean(init?.withCredentials);
+        MockEventSource.instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+
+    try {
+      vi.spyOn(submissionsApi, 'submitOfficialSolution').mockResolvedValueOnce({
+        id: 'sub-sse-1',
+        status: SubmissionStatus.QUEUED,
+      });
+
+      const view = renderDetail();
+      await screen.findByLabelText('Source code editor');
+
+      fireEvent.click(screen.getByRole('button', { name: /^submit$/i }));
+
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+      const es = MockEventSource.instances[0];
+      expect(es.url).toBe('/api/submissions/sub-sse-1/live');
+      expect(es.withCredentials).toBe(true);
+
+      es.onopen?.();
+      await waitFor(() => expect(screen.getByText('Live updates connected')).toBeTruthy());
+
+      // Stale/unrelated submission ID is ignored
+      es.onmessage?.({
+        data: JSON.stringify({
+          submissionId: 'sub-other',
+          status: Verdict.WRONG_ANSWER,
+          verdict: Verdict.WRONG_ANSWER,
+          timestamp: Date.now(),
+        }),
+      });
+
+      es.onmessage?.({
+        data: JSON.stringify({
+          submissionId: 'sub-sse-1',
+          status: SubmissionStatus.RUNNING,
+          timestamp: Date.now(),
+        }),
+      });
+      await waitFor(() => expect(screen.getByText(/RUNNING/)).toBeTruthy());
+
+      es.onmessage?.({
+        data: JSON.stringify({
+          submissionId: 'sub-sse-1',
+          status: Verdict.ACCEPTED,
+          verdict: Verdict.ACCEPTED,
+          executionTimeMs: 52,
+          memoryUsedKb: 15000,
+          timestamp: Date.now(),
+        }),
+      });
+
+      await waitFor(() => expect(screen.getByText('Accepted')).toBeTruthy());
+      expect(screen.getByText('Submission completed')).toBeTruthy();
+      expect(es.close).toHaveBeenCalledTimes(1);
+
+      view.unmount();
+
+      // Test 2: SSE error falls back to bounded polling without re-submitting
+      MockEventSource.instances = [];
+      const submitSpy = vi
+        .spyOn(submissionsApi, 'submitOfficialSolution')
+        .mockResolvedValueOnce({ id: 'sub-sse-fallback', status: SubmissionStatus.QUEUED });
+      const pollSpy = vi.spyOn(submissionsApi, 'fetchSubmissionById').mockResolvedValueOnce({
+        id: 'sub-sse-fallback',
+        problemId: '11111111-1111-4111-8111-111111111111',
+        userId: 'user-1',
+        code: 'console.log(1)',
+        language: 'javascript',
+        status: SubmissionStatus.COMPLETED,
+        verdict: Verdict.ACCEPTED,
+        executionTimeMs: 22,
+        memoryUsedKb: 11000,
+        retryCount: 0,
+        createdAt: '2026-11-12T00:00:00.000Z',
+        updatedAt: '2026-11-12T00:00:02.000Z',
+      });
+
+      const view2 = renderDetail();
+      await screen.findByLabelText('Source code editor');
+      fireEvent.click(screen.getByRole('button', { name: /^submit$/i }));
+
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+      const es2 = MockEventSource.instances[0];
+      es2.readyState = 2; // CLOSED
+      es2.onerror?.();
+
+      await waitFor(() => expect(screen.getByText('Using polling fallback')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('Accepted')).toBeTruthy(), { timeout: 2500 });
+      expect(submitSpy).toHaveBeenCalledTimes(1);
+      expect(pollSpy).toHaveBeenCalledTimes(1);
+
+      view2.unmount();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

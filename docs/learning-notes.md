@@ -227,3 +227,14 @@ A code judge uses a message queue because compiling and running code takes varia
    - Always check `sub.userId === currentUserId` before returning a submission DTO, preventing horizontal privilege escalation (`IDOR`) from exposing another user's source code.
 3. **Bounded Backoff Polling with `AbortController`**
    - When polling `GET /api/submissions/:id`, increasing the delay (`600ms` -> up to `2500ms`), capping total wait (`45s`) and consecutive transient errors (`3`), and aborting on unmount or problem change prevents runaway network traffic and stale UI updates.
+
+---
+
+## Day 16 — Real-Time SSE, Snapshot Buffering & Polling Fallback
+
+1. **Closing the Pub/Sub Snapshot Race Window**
+   - Redis Pub/Sub does not replay missed messages. Registering the SSE client in `SSEManager` _before_ querying PostgreSQL (buffering incoming events until the initial DB snapshot is written) ensures transitions happening mid-query are never lost.
+2. **Monotonic Status Guards**
+   - Tracking `lastRank` (`QUEUED = 0`, `RUNNING = 1`, terminal `COMPLETED`/verdict = `2`) on both backend SSE delivery and frontend `SampleRunnerPanel` guarantees out-of-order or stale events cannot regress `RUNNING` back to `QUEUED`.
+3. **Graceful Polling Fallback Without Duplicate Submissions**
+   - If `EventSource` is unavailable or fails repeatedly, the UI closes the stream and switches to existing bounded `GET /api/submissions/:id` polling for the same `submissionId`—never re-calling `POST /api/submissions`.

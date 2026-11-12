@@ -7,6 +7,7 @@ import {
   Cpu,
   Loader2,
   Play,
+  Radio,
   RotateCcw,
   Send,
 } from 'lucide-react';
@@ -15,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   fetchSampleRunResult,
   fetchSubmissionById,
+  getSubmissionLiveStreamUrl,
   runSampleCode,
   submitOfficialSolution,
 } from '../services/submissionsApi';
@@ -25,6 +27,7 @@ import type {
   SampleRunOutcome,
   SampleRunResult,
   Submission,
+  SubmissionEvent,
   SupportedLanguage,
 } from '../types';
 
@@ -130,11 +133,29 @@ const VERDICT_META: Record<Verdict, { label: string; badgeClass: string; isAccep
 };
 
 type UiRunPhase = 'idle' | 'submitting' | 'queued' | 'running' | 'finished' | 'error';
+type ConnectionState =
+  'idle' | 'connecting' | 'connected' | 'reconnecting' | 'polling' | 'completed';
+
+const CONNECTION_LABELS: Record<ConnectionState, string> = {
+  idle: '',
+  connecting: 'Connecting',
+  connected: 'Live updates connected',
+  reconnecting: 'Reconnecting',
+  polling: 'Using polling fallback',
+  completed: 'Submission completed',
+};
 
 const SAMPLE_POLL_INTERVAL_MS = 500;
 const MAX_SAMPLE_POLL_WAIT_MS = 30000;
 const MAX_OFFICIAL_POLL_WAIT_MS = 45000;
 const MAX_OFFICIAL_POLL_ERRORS = 3;
+
+function getPhaseRank(phase: UiRunPhase): number {
+  if (phase === 'finished') return 2;
+  if (phase === 'running') return 1;
+  if (phase === 'queued') return 0;
+  return -1;
+}
 
 export function SampleRunnerPanel({ problem }: { problem: Problem }) {
   const { status: authStatus } = useAuth();
@@ -154,27 +175,46 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
 
   // Official submission state
   const [submitPhase, setSubmitPhase] = useState<UiRunPhase>('idle');
+  const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [officialSubmission, setOfficialSubmission] = useState<Submission | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const activeProblemIdRef = useRef(problem.id);
+  const activeSubmissionIdRef = useRef<string | null>(null);
+  const submitPhaseRef = useRef<UiRunPhase>('idle');
   const sampleAbortRef = useRef<AbortController | null>(null);
   const sampleInFlightRef = useRef(false);
   const submitAbortRef = useRef<AbortController | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const submitInFlightRef = useRef(false);
+
+  function closeEventSource() {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }
+
+  function updateSubmitPhase(next: UiRunPhase) {
+    submitPhaseRef.current = next;
+    setSubmitPhase(next);
+  }
 
   useEffect(() => {
     activeProblemIdRef.current = problem.id;
+    activeSubmissionIdRef.current = null;
     sampleAbortRef.current?.abort();
     sampleInFlightRef.current = false;
     submitAbortRef.current?.abort();
+    closeEventSource();
     submitInFlightRef.current = false;
 
     setPhase('idle');
     setRunResult(null);
     setErrorMessage(null);
-    setSubmitPhase('idle');
+    updateSubmitPhase('idle');
+    setConnectionState('idle');
     setSubmissionId(null);
     setOfficialSubmission(null);
     setSubmitError(null);
@@ -183,6 +223,7 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
     return () => {
       sampleAbortRef.current?.abort();
       submitAbortRef.current?.abort();
+      closeEventSource();
     };
   }, [problem.id]);
 
@@ -285,56 +326,220 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
     targetProblemId: string,
     controller: AbortController
   ) {
+    setConnectionState('polling');
     const startedAt = Date.now();
     let pollDelayMs = 600;
     let consecutiveErrors = 0;
 
-    while (!controller.signal.aborted && activeProblemIdRef.current === targetProblemId) {
-      if (Date.now() - startedAt > MAX_OFFICIAL_POLL_WAIT_MS) {
-        setSubmitPhase('error');
-        setSubmitError(
-          'Judging is taking longer than expected. Your submission is still in progress—click Check Status to refresh.'
-        );
-        break;
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
-      if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-
-      try {
-        const latest = await fetchSubmissionById(targetSubmissionId, controller.signal);
-        if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-
-        consecutiveErrors = 0;
-        if (latest.status === SubmissionStatus.QUEUED) {
-          setSubmitPhase('queued');
-        } else if (latest.status === SubmissionStatus.RUNNING) {
-          setSubmitPhase('running');
-        } else {
-          setOfficialSubmission(latest);
-          setSubmitPhase('finished');
+    try {
+      while (
+        !controller.signal.aborted &&
+        activeProblemIdRef.current === targetProblemId &&
+        activeSubmissionIdRef.current === targetSubmissionId
+      ) {
+        if (Date.now() - startedAt > MAX_OFFICIAL_POLL_WAIT_MS) {
+          updateSubmitPhase('error');
+          setSubmitError(
+            'Judging is taking longer than expected. Your submission is still in progress—click Check Status to refresh.'
+          );
           break;
         }
-      } catch (pollErr) {
-        if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-        const classified = classifyApiError(pollErr, 'Failed to check submission status.');
-        if (classified.category === 'cancelled') return;
 
-        consecutiveErrors += 1;
+        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
         if (
-          classified.category === 'forbidden' ||
-          classified.category === 'not_found' ||
-          classified.category === 'unauthorized' ||
-          consecutiveErrors >= MAX_OFFICIAL_POLL_ERRORS
+          controller.signal.aborted ||
+          activeProblemIdRef.current !== targetProblemId ||
+          activeSubmissionIdRef.current !== targetSubmissionId
         ) {
-          setSubmitPhase('error');
-          setSubmitError(classified.message);
-          break;
+          return;
         }
+
+        try {
+          const latest = await fetchSubmissionById(targetSubmissionId, controller.signal);
+          if (
+            controller.signal.aborted ||
+            activeProblemIdRef.current !== targetProblemId ||
+            activeSubmissionIdRef.current !== targetSubmissionId
+          ) {
+            return;
+          }
+
+          consecutiveErrors = 0;
+          if (latest.status === SubmissionStatus.QUEUED) {
+            if (getPhaseRank(submitPhaseRef.current) < 0) updateSubmitPhase('queued');
+          } else if (latest.status === SubmissionStatus.RUNNING) {
+            if (getPhaseRank(submitPhaseRef.current) < 1) updateSubmitPhase('running');
+          } else {
+            setOfficialSubmission(latest);
+            updateSubmitPhase('finished');
+            setConnectionState('completed');
+            break;
+          }
+        } catch (pollErr) {
+          if (
+            controller.signal.aborted ||
+            activeProblemIdRef.current !== targetProblemId ||
+            activeSubmissionIdRef.current !== targetSubmissionId
+          ) {
+            return;
+          }
+          const classified = classifyApiError(pollErr, 'Failed to check submission status.');
+          if (classified.category === 'cancelled') return;
+
+          consecutiveErrors += 1;
+          if (
+            classified.category === 'forbidden' ||
+            classified.category === 'not_found' ||
+            classified.category === 'unauthorized' ||
+            consecutiveErrors >= MAX_OFFICIAL_POLL_ERRORS
+          ) {
+            updateSubmitPhase('error');
+            setSubmitError(classified.message);
+            break;
+          }
+        }
+
+        pollDelayMs = Math.min(Math.round(pollDelayMs * 1.4), 2500);
+      }
+    } finally {
+      submitInFlightRef.current = false;
+    }
+  }
+
+  function startSseTracking(
+    targetSubmissionId: string,
+    targetProblemId: string,
+    controller: AbortController
+  ) {
+    if (typeof EventSource === 'undefined') {
+      void pollSubmissionStatus(targetSubmissionId, targetProblemId, controller);
+      return;
+    }
+
+    closeEventSource();
+    setConnectionState('connecting');
+
+    const streamUrl = getSubmissionLiveStreamUrl(targetSubmissionId);
+    const es = new EventSource(streamUrl, { withCredentials: true });
+    eventSourceRef.current = es;
+    let sseErrors = 0;
+    let fallbackStarted = false;
+
+    const triggerPollingFallback = () => {
+      if (fallbackStarted) return;
+      fallbackStarted = true;
+      closeEventSource();
+      if (
+        controller.signal.aborted ||
+        activeProblemIdRef.current !== targetProblemId ||
+        activeSubmissionIdRef.current !== targetSubmissionId ||
+        submitPhaseRef.current === 'finished'
+      ) {
+        submitInFlightRef.current = false;
+        return;
+      }
+      void pollSubmissionStatus(targetSubmissionId, targetProblemId, controller);
+    };
+
+    es.onopen = () => {
+      if (
+        controller.signal.aborted ||
+        activeProblemIdRef.current !== targetProblemId ||
+        activeSubmissionIdRef.current !== targetSubmissionId
+      ) {
+        es.close();
+        return;
+      }
+      sseErrors = 0;
+      setConnectionState('connected');
+    };
+
+    es.onmessage = (msg) => {
+      if (
+        controller.signal.aborted ||
+        activeProblemIdRef.current !== targetProblemId ||
+        activeSubmissionIdRef.current !== targetSubmissionId
+      ) {
+        es.close();
+        return;
       }
 
-      pollDelayMs = Math.min(Math.round(pollDelayMs * 1.4), 2500);
-    }
+      let event: SubmissionEvent;
+      try {
+        event = JSON.parse(msg.data) as SubmissionEvent;
+      } catch {
+        return;
+      }
+
+      if (!event || event.submissionId !== targetSubmissionId) {
+        return;
+      }
+
+      const isTerminal =
+        Boolean(event.verdict) ||
+        event.status === SubmissionStatus.COMPLETED ||
+        Object.values(Verdict).includes(event.status as Verdict);
+
+      if (isTerminal) {
+        const finalVerdict =
+          event.verdict ??
+          (Object.values(Verdict).includes(event.status as Verdict)
+            ? (event.status as Verdict)
+            : Verdict.INTERNAL_ERROR);
+
+        setOfficialSubmission({
+          id: targetSubmissionId,
+          problemId: targetProblemId,
+          userId: '',
+          code: '',
+          language,
+          status: SubmissionStatus.COMPLETED,
+          verdict: finalVerdict,
+          executionTimeMs: event.executionTimeMs,
+          memoryUsedKb: event.memoryUsedKb,
+          failedTestIndex: event.failedTestIndex,
+          retryCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        updateSubmitPhase('finished');
+        setConnectionState('completed');
+        submitInFlightRef.current = false;
+        closeEventSource();
+        return;
+      }
+
+      if (event.status === SubmissionStatus.RUNNING) {
+        if (getPhaseRank(submitPhaseRef.current) < 1) {
+          updateSubmitPhase('running');
+        }
+      } else if (event.status === SubmissionStatus.QUEUED) {
+        if (getPhaseRank(submitPhaseRef.current) < 0) {
+          updateSubmitPhase('queued');
+        }
+      }
+    };
+
+    es.onerror = () => {
+      if (
+        controller.signal.aborted ||
+        activeProblemIdRef.current !== targetProblemId ||
+        activeSubmissionIdRef.current !== targetSubmissionId ||
+        submitPhaseRef.current === 'finished'
+      ) {
+        closeEventSource();
+        submitInFlightRef.current = false;
+        return;
+      }
+
+      sseErrors += 1;
+      if (sseErrors < 2 && es.readyState !== EventSource.CLOSED) {
+        setConnectionState('reconnecting');
+        return;
+      }
+
+      triggerPollingFallback();
+    };
   }
 
   async function handleResumeStatusCheck() {
@@ -348,37 +553,38 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
     }
 
     submitAbortRef.current?.abort();
+    closeEventSource();
     const controller = new AbortController();
     submitAbortRef.current = controller;
     submitInFlightRef.current = true;
 
     const targetProblemId = problem.id;
+    activeSubmissionIdRef.current = submissionId;
     setSubmitError(null);
-    setSubmitPhase('queued');
+    updateSubmitPhase('queued');
 
-    try {
-      await pollSubmissionStatus(submissionId, targetProblemId, controller);
-    } finally {
-      submitInFlightRef.current = false;
-    }
+    await pollSubmissionStatus(submissionId, targetProblemId, controller);
   }
 
   async function handleOfficialSubmit() {
     if (isSubmitBusy || submitInFlightRef.current || authStatus !== 'authenticated') return;
 
     if (!currentCode.trim()) {
-      setSubmitPhase('error');
+      updateSubmitPhase('error');
       setSubmitError('Code cannot be empty before submitting.');
       return;
     }
 
     submitAbortRef.current?.abort();
+    closeEventSource();
     const controller = new AbortController();
     submitAbortRef.current = controller;
     submitInFlightRef.current = true;
 
     const targetProblemId = problem.id;
-    setSubmitPhase('submitting');
+    activeSubmissionIdRef.current = null;
+    updateSubmitPhase('submitting');
+    setConnectionState('idle');
     setSubmitError(null);
     setSubmissionId(null);
     setOfficialSubmission(null);
@@ -393,19 +599,23 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
         controller.signal
       );
 
-      if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-      setSubmissionId(created.id);
-      setSubmitPhase('queued');
+      if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) {
+        submitInFlightRef.current = false;
+        return;
+      }
 
-      await pollSubmissionStatus(created.id, targetProblemId, controller);
+      activeSubmissionIdRef.current = created.id;
+      setSubmissionId(created.id);
+      updateSubmitPhase('queued');
+
+      startSseTracking(created.id, targetProblemId, controller);
     } catch (err) {
+      submitInFlightRef.current = false;
       if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
       const classified = classifyApiError(err, 'Failed to submit solution.');
       if (classified.category === 'cancelled') return;
-      setSubmitPhase('error');
+      updateSubmitPhase('error');
       setSubmitError(classified.message);
-    } finally {
-      submitInFlightRef.current = false;
     }
   }
 
@@ -557,9 +767,17 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
           className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Official Submission Verdict
-            </h3>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Official Submission Verdict
+              </h3>
+              {connectionState !== 'idle' && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                  <Radio className="h-3 w-3 text-indigo-400" />
+                  {CONNECTION_LABELS[connectionState]}
+                </span>
+              )}
+            </div>
 
             {submitPhase === 'submitting' && (
               <span role="status" className="text-xs text-emerald-300">

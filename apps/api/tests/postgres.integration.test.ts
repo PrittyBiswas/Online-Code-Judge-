@@ -449,6 +449,7 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
 
     // Wait briefly so SSE Redis subscriber is active before streaming
     const ssePromise = fetch(`${baseUrl}/api/submissions/${submissionId}/live`, {
+      headers: { Cookie: cookie },
       signal: AbortSignal.timeout(8000),
     }).then(async (res) => {
       expect(res.status).toBe(200);

@@ -47,11 +47,11 @@ pnpm build
   - Public routes `/problems` (`ProblemsPage`) and `/problems/:id` (`ProblemDetailPage`, supporting UUID or slug) wired via `src/services/problemsApi.ts` (`GET /api/problems`, `GET /api/problems/:id`) and `@tanstack/react-query` with `AbortSignal` request cancellation.
   - Debounced search (`300ms` via `useDebouncedValue`), `difficulty` and `tag` AND-filters, cursor-based Previous/Next pagination using `nextCursor` (resetting cursors whenever filters/search change), and loading/empty/error/404-not-found UI states.
   - Safe plain-text rendering of problem statements and sample I/O (`whitespace-pre-wrap`, zero `dangerouslySetInnerHTML`) with zero hidden test-case or storage field exposure.
-- **API Client Reliability, Monaco Editor, Run Sample & Official Submit (Day 14–15)**:
+- **API Client Reliability, Monaco Editor, Run Sample & Official Submit + Live SSE (Day 14–16)**:
   - Enhanced `src/services/apiClient.ts` with `classifyApiError()` (`400`/`401`/`403`/`404`/`429`/`500+`/timeout/network/cancelled), single-event `401` session-expiration deduplication (never treating `403` or network errors as `401`), and `getWithRetry()` for safe idempotent `GET` requests respecting `AbortSignal`.
-  - Integrated `@monaco-editor/react` (`src/components/CodeEditor.tsx`) and `src/components/SampleRunnerPanel.tsx` into `ProblemDetailPage` for JavaScript & Python with per-language code preservation, reset confirmation dialog, `POST /api/submissions/run-sample` + `GET /api/submissions/run-sample/:runId` polling, and official `Submit` (`POST /api/submissions` -> `202` + bounded `GET /api/submissions/:id` polling with `AbortController`, backoff, and `QUEUED` -> `RUNNING` -> final `Verdict` display).
-- Automated frontend auth, problem, sample-runner, and official-submit tests (`pnpm --filter @judge/frontend test`).
+  - Integrated `@monaco-editor/react` (`src/components/CodeEditor.tsx`) and `src/components/SampleRunnerPanel.tsx` into `ProblemDetailPage` for JavaScript & Python with per-language code preservation, reset confirmation dialog, `Run Sample`, and official `Submit` (`POST /api/submissions` -> `202` -> primary `EventSource('/api/submissions/:id/live', { withCredentials: true })` with automatic bounded polling fallback, connection state indicator, `Check Status` recovery, and cleanup on terminal verdict/unmount/navigation).
+- Automated frontend auth, problem, sample-runner, official-submit, and SSE tests (`pnpm --filter @judge/frontend test`).
 
 ## Intentionally Postponed
 
-- Live SSE submission updates, full submission history page, leaderboards, contests, and admin views.
+- Full submission history page, leaderboards, contests, and admin views.

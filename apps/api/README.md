@@ -58,6 +58,7 @@ pnpm test:integration
 
 - `POST /api/submissions` — Protected (`requireAuth`, `submissionRateLimiter` 5/min, `doubleClickGuard`). Validates `{ problemId, code, language }`, verifies problem availability in PostgreSQL, inserts a `QUEUED` submission row, and enqueues the job on `judge-queue` (compensating by deleting the row and returning `503` if queue insertion fails). Returns `202 Accepted` `{ data: { id, status: 'QUEUED' } }`.
 - `GET /api/submissions/:id` — Protected (`requireAuth`). Enforces strict ownership (`403 Forbidden` if `submission.userId !== req.user.id`, `404` if missing) and returns public submission status, verdict, `executionTimeMs`, `memoryUsedKb`, and `failedTestIndex` without exposing hidden test-case data.
+- `GET /api/submissions/:id/live` — Protected (`requireAuth`, `HttpOnly` cookie auth—never query-string JWTs). Enforces `404`/`403` submission ownership, registers SSE client before reading PostgreSQL snapshot (buffering in-flight Redis Pub/Sub events to prevent missed updates), enforces monotonic status ordering (`QUEUED -> RUNNING -> COMPLETED`), sends `15s` heartbeats, closes on terminal verdict or Redis drop, and strips source code/hidden test data (`apps/api/src/events/sse.ts`).
 
 ## Endpoints Verified for Day 2
 

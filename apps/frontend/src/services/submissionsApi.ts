@@ -94,3 +94,7 @@ export async function fetchSubmissionById(
   );
   return envelope.data.submission;
 }
+
+export function getSubmissionLiveStreamUrl(submissionId: string): string {
+  return `/api/submissions/${encodeURIComponent(submissionId)}/live`;
+}
