@@ -100,18 +100,68 @@ export class SubmissionsService {
       memoryLimitMb: problemLimits.memoryLimitMb,
     };
 
-    // Push job to BullMQ queue (Card 1 / AC-SJ-01)
-    if (judgeQueue && isRedisHealthy()) {
+    // Push job to BullMQ queue (Card 1 / AC-SJ-01) with DB compensation if enqueue fails
+    if (!judgeQueue || !isRedisHealthy()) {
+      await db
+        .delete(submissions)
+        .where(eq(submissions.id, createdSubmission.id))
+        .catch(() => {});
+      throw new AppError(
+        ERROR_CODES.INTERNAL_ERROR,
+        'Submission queue is temporarily unavailable.',
+        503
+      );
+    }
+
+    try {
+      await Promise.race([
+        judgeQueue.add('evaluate-submission', jobData, {
+          jobId: createdSubmission.id, // Deduplication / idempotency
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Queue enqueue timeout')), 800)
+        ),
+      ]);
+    } catch {
+      // Check whether BullMQ already accepted the deterministic jobId before compensating.
+      let lookupState: 'present' | 'absent' | 'ambiguous' = 'ambiguous';
       try {
-        await Promise.race([
-          judgeQueue.add('evaluate-submission', jobData, {
-            jobId: createdSubmission.id, // Deduplication / idempotency
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Queue enqueue timeout')), 400)
+        const existingJob = await Promise.race([
+          judgeQueue.getJob(createdSubmission.id),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Queue lookup timeout')), 400)
           ),
         ]);
-      } catch {}
+        lookupState = existingJob ? 'present' : 'absent';
+      } catch {
+        lookupState = 'ambiguous';
+      }
+
+      if (lookupState === 'present') {
+        return {
+          id: createdSubmission.id,
+          status: SubmissionStatus.QUEUED,
+        };
+      }
+
+      if (lookupState === 'absent') {
+        await db
+          .delete(submissions)
+          .where(eq(submissions.id, createdSubmission.id))
+          .catch(() => {});
+        throw new AppError(
+          ERROR_CODES.INTERNAL_ERROR,
+          'Submission queue is temporarily unavailable.',
+          503
+        );
+      }
+
+      // Ambiguous enqueue outcome: keep the DB row so a queued worker job is never orphaned.
+      throw new AppError(
+        ERROR_CODES.INTERNAL_ERROR,
+        'Submission queue status is temporarily uncertain; please check your submission shortly.',
+        503
+      );
     }
 
     // Return 202 immediately with submission ID
@@ -261,7 +311,7 @@ export class SubmissionsService {
     return publicResult;
   }
 
-  async getSubmission(id: string, _currentUserId: string): Promise<Submission> {
+  async getSubmission(id: string, currentUserId: string): Promise<Submission> {
     if (!isUuid(id)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
     }
@@ -271,6 +321,14 @@ export class SubmissionsService {
 
       if (!sub) {
         throw new AppError(ERROR_CODES.NOT_FOUND, 'Submission not found', 404);
+      }
+
+      if (sub.userId !== currentUserId) {
+        throw new AppError(
+          ERROR_CODES.FORBIDDEN,
+          'Access denied: you do not own this submission',
+          403
+        );
       }
 
       return this.mapToDto(sub);

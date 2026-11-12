@@ -54,6 +54,11 @@ pnpm test:integration
 - `POST /api/submissions/run-sample` — Protected (`requireAuth`, `sampleRunRateLimiter` 10/min, `sampleDoubleClickGuard`). Validates `{ problemId, code, language }` (`runSampleSchema.strict()`, rejecting client-supplied `customInput`, limits, or image names), loads only public `sampleInput` and problem resource limits from PostgreSQL, stores initial `QUEUED` state in Redis (`judge:sample:job:<runId>`, `300s` TTL), and enqueues `SampleRunJobData` (`type: 'SAMPLE_RUN'`) onto `sample-run-queue` (`attempts: 1`, `removeOnComplete: true`, `removeOnFail: { age: 300, count: 50 }`) for the host `judge-worker`. Returns `202 Accepted` `{ data: { runId, status: 'QUEUED' } }`.
 - `GET /api/submissions/run-sample/:runId` — Protected (`requireAuth`). Reads sample run state from Redis, enforces strict job ownership (`403 Forbidden` if another user owns `runId`, `404` if missing/expired), and returns bounded `stdout`/`stderr`, outcome, and execution metrics without exposing source code or internal worker data.
 
+## Official Submission Endpoints (Day 15)
+
+- `POST /api/submissions` — Protected (`requireAuth`, `submissionRateLimiter` 5/min, `doubleClickGuard`). Validates `{ problemId, code, language }`, verifies problem availability in PostgreSQL, inserts a `QUEUED` submission row, and enqueues the job on `judge-queue` (compensating by deleting the row and returning `503` if queue insertion fails). Returns `202 Accepted` `{ data: { id, status: 'QUEUED' } }`.
+- `GET /api/submissions/:id` — Protected (`requireAuth`). Enforces strict ownership (`403 Forbidden` if `submission.userId !== req.user.id`, `404` if missing) and returns public submission status, verdict, `executionTimeMs`, `memoryUsedKb`, and `failedTestIndex` without exposing hidden test-case data.
+
 ## Endpoints Verified for Day 2
 
 - `GET /` — Returns API metadata (`Online Code Judge API`, version, health path) using `@judge/shared`.

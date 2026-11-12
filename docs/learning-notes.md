@@ -216,3 +216,14 @@ A code judge uses a message queue because compiling and running code takes varia
    - Routing sample runs through a separate BullMQ queue (`sample-run-queue`) and `sampleRunProcessor.ts` guarantees sample runs can never enter `processSubmissionJob()`, touch hidden `test_cases`, write `submissions` rows, or update `leaderboard` scores—while still executing inside the exact same host-run Docker sandbox.
 3. **Zero Trust for Client Sample Parameters**
    - `runSampleSchema.strict()` accepts only `{ problemId, code, language }`. `sampleInput`, `timeLimitMs`, and `memoryLimitMb` are loaded exclusively from PostgreSQL on the server.
+
+---
+
+## Day 15 — Official Submission Lifecycle, DB Compensation & Bounded Polling
+
+1. **Queue-Failure Compensation (`submitCode`)**
+   - PostgreSQL `INSERT` and BullMQ `judgeQueue.add` span two separate systems. If `judgeQueue.add` fails or Redis is down, `submitCode()` deletes the orphaned `QUEUED` submission row and returns `503` rather than leaving a permanently stuck `QUEUED` submission.
+2. **Strict Ownership on `GET /api/submissions/:id`**
+   - Always check `sub.userId === currentUserId` before returning a submission DTO, preventing horizontal privilege escalation (`IDOR`) from exposing another user's source code.
+3. **Bounded Backoff Polling with `AbortController`**
+   - When polling `GET /api/submissions/:id`, increasing the delay (`600ms` -> up to `2500ms`), capping total wait (`45s`) and consecutive transient errors (`3`), and aborting on unmount or problem change prevents runaway network traffic and stale UI updates.

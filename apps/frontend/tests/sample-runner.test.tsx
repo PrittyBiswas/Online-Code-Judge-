@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
-import { ProblemDifficulty } from '@judge/shared';
+import { ProblemDifficulty, SubmissionStatus, Verdict } from '@judge/shared';
 import { AppRoutes } from '../src/App';
 import { apiClient, getWithRetry, registerUnauthorizedHandler } from '../src/services/apiClient';
 import * as authApi from '../src/services/authApi';
@@ -290,5 +290,157 @@ describe('Day 14 — API Client Reliability, Code Editor & Run Sample UI', () =>
       },
       { timeout: 2500 }
     );
+  });
+
+  it('submits official solution (HTTP 202), transitions QUEUED -> RUNNING -> ACCEPTED, prevents duplicate clicks, and stops polling', async () => {
+    let resolveSubmit!: (val: { id: string; status: SubmissionStatus }) => void;
+    const submitSpy = vi.spyOn(submissionsApi, 'submitOfficialSolution').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSubmit = resolve;
+        })
+    );
+
+    const pollSpy = vi
+      .spyOn(submissionsApi, 'fetchSubmissionById')
+      .mockResolvedValueOnce({
+        id: 'sub-123',
+        problemId: '11111111-1111-4111-8111-111111111111',
+        userId: 'user-1',
+        code: 'print("hello")',
+        language: 'python',
+        status: SubmissionStatus.RUNNING,
+        retryCount: 0,
+        createdAt: '2026-11-12T00:00:00.000Z',
+        updatedAt: '2026-11-12T00:00:01.000Z',
+      })
+      .mockResolvedValueOnce({
+        id: 'sub-123',
+        problemId: '11111111-1111-4111-8111-111111111111',
+        userId: 'user-1',
+        code: 'print("hello")',
+        language: 'python',
+        status: SubmissionStatus.COMPLETED,
+        verdict: Verdict.ACCEPTED,
+        executionTimeMs: 88,
+        memoryUsedKb: 14336,
+        retryCount: 0,
+        createdAt: '2026-11-12T00:00:00.000Z',
+        updatedAt: '2026-11-12T00:00:02.000Z',
+      });
+
+    renderDetail();
+    await screen.findByLabelText('Source code editor');
+
+    fireEvent.change(screen.getByLabelText('Programming language'), {
+      target: { value: 'python' },
+    });
+    fireEvent.change(screen.getByLabelText('Source code editor'), {
+      target: { value: 'print("hello")' },
+    });
+
+    const submitBtn = screen.getByRole('button', { name: /^submit$/i }) as HTMLButtonElement;
+    fireEvent.click(submitBtn);
+    fireEvent.click(submitBtn); // Duplicate click while pending
+
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy).toHaveBeenCalledWith(
+      {
+        problemId: '11111111-1111-4111-8111-111111111111',
+        code: 'print("hello")',
+        language: 'python',
+      },
+      expect.any(AbortSignal)
+    );
+    expect(submitBtn.disabled).toBe(true);
+
+    resolveSubmit({ id: 'sub-123', status: SubmissionStatus.QUEUED });
+
+    await waitFor(() => expect(screen.getByText(/QUEUED/)).toBeTruthy(), { timeout: 1500 });
+    await waitFor(() => expect(screen.getByText(/RUNNING/)).toBeTruthy(), { timeout: 2500 });
+    await waitFor(() => expect(screen.getByText('Accepted')).toBeTruthy(), { timeout: 3000 });
+
+    expect(screen.getByText('88 ms')).toBeTruthy();
+    expect(screen.getByText('14336 KB')).toBeTruthy();
+    expect(pollSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels official submission polling on unmount and surfaces safe errors on failure', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    vi.spyOn(submissionsApi, 'submitOfficialSolution').mockImplementation(async (_req, signal) => {
+      capturedSignal = signal;
+      return { id: 'sub-abort', status: SubmissionStatus.QUEUED };
+    });
+    const pollSpy = vi.spyOn(submissionsApi, 'fetchSubmissionById');
+
+    const view = renderDetail();
+    await screen.findByLabelText('Source code editor');
+
+    fireEvent.click(screen.getByRole('button', { name: /^submit$/i }));
+    await waitFor(() => expect(capturedSignal).toBeDefined());
+
+    view.unmount();
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(pollSpy).not.toHaveBeenCalled();
+
+    // Verify safe error handling when POST /api/submissions fails
+    vi.spyOn(submissionsApi, 'submitOfficialSolution').mockRejectedValueOnce(
+      makeAxiosError(503, 'Submission queue is temporarily unavailable.')
+    );
+
+    renderDetail();
+    await screen.findByLabelText('Source code editor');
+    fireEvent.click(screen.getByRole('button', { name: /^submit$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain(
+        'Submission queue is temporarily unavailable.'
+      );
+    });
+  });
+
+  it('allows recovering a still-running submission via Check Status without re-submitting', async () => {
+    const submitSpy = vi
+      .spyOn(submissionsApi, 'submitOfficialSolution')
+      .mockResolvedValueOnce({ id: 'sub-recover', status: SubmissionStatus.QUEUED });
+
+    const pollSpy = vi
+      .spyOn(submissionsApi, 'fetchSubmissionById')
+      .mockRejectedValueOnce(makeAxiosError(503, 'Temporary error 1'))
+      .mockRejectedValueOnce(makeAxiosError(503, 'Temporary error 2'))
+      .mockRejectedValueOnce(makeAxiosError(503, 'Temporary error 3'))
+      .mockResolvedValueOnce({
+        id: 'sub-recover',
+        problemId: '11111111-1111-4111-8111-111111111111',
+        userId: 'user-1',
+        code: 'console.log(1)',
+        language: 'javascript',
+        status: SubmissionStatus.COMPLETED,
+        verdict: Verdict.ACCEPTED,
+        executionTimeMs: 31,
+        memoryUsedKb: 10240,
+        retryCount: 0,
+        createdAt: '2026-11-12T00:00:00.000Z',
+        updatedAt: '2026-11-12T00:00:05.000Z',
+      });
+
+    renderDetail();
+    await screen.findByLabelText('Source code editor');
+
+    fireEvent.click(screen.getByRole('button', { name: /^submit$/i }));
+
+    // After 3 consecutive transient errors, polling stops and offers Check Status recovery
+    const checkBtn = await screen.findByRole(
+      'button',
+      { name: /check status/i },
+      { timeout: 6000 }
+    );
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(checkBtn);
+
+    await waitFor(() => expect(screen.getByText('Accepted')).toBeTruthy(), { timeout: 2500 });
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(pollSpy).toHaveBeenCalledTimes(4);
   });
 });

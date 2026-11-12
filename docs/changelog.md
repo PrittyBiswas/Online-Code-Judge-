@@ -3,6 +3,22 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 15 (2026-11-12)
+
+### Added
+
+- **Frontend Official Submit & Verdict Polling (`apps/frontend`)**:
+  - Added `submitOfficialSolution()` and `fetchSubmissionById()` in `src/services/submissionsApi.ts` and re-exported `Submission`, `SubmissionStatus`, `Verdict` in `src/types/index.ts`.
+  - Added an official **Submit** button and **Official Submission Verdict** card in `SampleRunnerPanel.tsx` (`POST /api/submissions` -> `202` -> bounded `GET /api/submissions/:id` polling with `AbortController`, backoff, duplicate-click prevention, and `QUEUED` / `RUNNING` / final `Verdict` display, independent from **Run Sample**).
+- **Official Submission API & Frontend Tests**: Expanded `apps/api/tests/submissions.test.ts` (queue-failure DB compensation, `GET /:id` `403` ownership check, auth/validation/rate-limit) and `apps/frontend/tests/sample-runner.test.tsx` (`QUEUED -> RUNNING -> ACCEPTED`, unmount abort, error handling).
+
+### Fixed & Hardened
+
+- **Queue-Failure Compensation & Submission Ownership (`apps/api/src/modules/submissions/submissions.service.ts`)**:
+  - Added DB compensation (deleting the newly inserted `QUEUED` row and returning `503`) if `judgeQueue` is unavailable or `judgeQueue.add` fails.
+  - Enforced strict ownership on `GET /api/submissions/:id` (`403 FORBIDDEN` when `sub.userId !== currentUserId`).
+- **Documentation**: Updated `apps/api/README.md`, `apps/frontend/README.md`, `apps/judge-worker/README.md`, `docs/safety.md`, `docs/test-plan.md`, `docs/learning-notes.md`, `docs/changelog.md`, `docs/project-checklist.md`, and `docs/known-issues.md`.
+
 ## [Unreleased] - Day 14 (2026-11-12)
 
 ### Added

@@ -131,7 +131,14 @@ This checklist tracks milestone completion across implementation days.
 - [x] Integrate `@monaco-editor/react` (`CodeEditor.tsx`) and `SampleRunnerPanel.tsx` into `ProblemDetailPage.tsx` for JavaScript & Python with language draft preservation, reset confirmation, and safe text output rendering
 - [x] Add frontend, backend, worker unit tests, and live Docker `sample-run.integration.test.ts`; update documentation
 
-## Day 15+ — Upcoming Milestones (Not Started Yet)
+## Day 15 — Official Submission & Asynchronous Judging Workflow
+
+- [x] Harden `POST /api/submissions` with queue-failure DB compensation (`503` + row deletion) and enforce `403` ownership on `GET /api/submissions/:id` (`apps/api/src/modules/submissions/submissions.service.ts`)
+- [x] Verify `judge-queue` host worker (`judgeProcessor.ts`) atomically claims submissions, loads all MinIO/Silo test cases, stops early on failure, and persists official verdicts idempotently
+- [x] Integrate official **Submit** action and bounded `AbortController` polling (`QUEUED -> RUNNING -> Verdict`) into `SampleRunnerPanel.tsx` & `submissionsApi.ts` while keeping **Run Sample** independent
+- [x] Expand backend (`apps/api/tests/submissions.test.ts`) and frontend (`apps/frontend/tests/sample-runner.test.tsx`) tests and update Day 15 documentation
+
+## Day 16+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

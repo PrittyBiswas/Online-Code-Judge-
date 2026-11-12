@@ -59,3 +59,11 @@ pnpm lint
 pnpm typecheck
 pnpm build
 ```
+
+---
+
+## 4. Day 15 Official Submission & Sample Verification
+
+- **API Unit/HTTP Tests (`apps/api/tests/submissions.test.ts`, `sample-run.test.ts`, `sample-queue-config.test.ts`)**: Verify `POST /api/submissions` (`202` + `QUEUED`), queue-failure DB compensation (`503` + row deletion), `GET /api/submissions/:id` ownership (`403` cross-user), rate limits & double-click guard (`429`), and `sampleRunQueue` bounded retention.
+- **Worker Unit & Integration Tests (`apps/judge-worker/tests/worker-unit.test.ts`, `worker.integration.test.ts`, `sample-run.integration.test.ts`)**: Verify atomic CAS claiming, all test-case evaluation from MinIO/Silo, early stopping, JS/Python verdicts (`ACCEPTED`, `WRONG_ANSWER`, `TLE`, `MLE`, `OLE`, `RE`, `CE`, `INTERNAL_ERROR`), and idempotent verdict persistence.
+- **Frontend Tests (`apps/frontend/tests/sample-runner.test.tsx`)**: Verify official **Submit** (`202` -> `QUEUED` -> `RUNNING` -> `Accepted`), duplicate-click prevention, bounded polling stop on terminal verdict, `AbortController` cancellation on unmount, and safe error display.

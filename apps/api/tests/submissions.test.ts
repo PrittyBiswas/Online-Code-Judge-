@@ -1,11 +1,48 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { SubmissionStatus, ProblemDifficulty } from '@judge/shared';
+import jwt from 'jsonwebtoken';
+import { SubmissionStatus, ProblemDifficulty, Role } from '@judge/shared';
 import { memoryDb } from '../src/config/db.js';
-import { problems, submissions } from '../src/db/schema.js';
+import { problems, submissions, users } from '../src/db/schema.js';
+import { env } from '../src/config/env.js';
 
 const TEST_SETTER_ID = '11111111-1111-4111-8111-111111111111';
 const TEST_USER_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_USER_ID = '33333333-3333-4333-8333-333333333333';
+
+const { mockRedisStore, mockJudgeAdd, mockJudgeGetJob, state } = vi.hoisted(() => ({
+  mockRedisStore: new Map<string, string>(),
+  mockJudgeAdd: vi.fn().mockResolvedValue({ id: 'judge-job-1' }),
+  mockJudgeGetJob: vi.fn().mockResolvedValue(null),
+  state: { redisOnline: true },
+}));
+
+vi.mock('../src/config/redis.js', () => ({
+  isRedisHealthy: () => state.redisOnline,
+  redisClient: {
+    get: vi.fn(async (key: string) => mockRedisStore.get(key) ?? null),
+    set: vi.fn(async (key: string, val: string, _ex?: string, _ttl?: number, nx?: string) => {
+      if (nx === 'NX' && mockRedisStore.has(key)) return null;
+      mockRedisStore.set(key, val);
+      return 'OK';
+    }),
+    del: vi.fn(async (key: string) => (mockRedisStore.delete(key) ? 1 : 0)),
+    incr: vi.fn(async (key: string) => {
+      const next = Number(mockRedisStore.get(key) || '0') + 1;
+      mockRedisStore.set(key, String(next));
+      return next;
+    }),
+    expire: vi.fn(async () => 1),
+    ttl: vi.fn(async () => 60),
+  },
+  redisSubscriber: { on: vi.fn(), subscribe: vi.fn() },
+}));
+
+vi.mock('../src/config/queue.js', () => ({
+  judgeQueue: { add: mockJudgeAdd, getJob: mockJudgeGetJob },
+  sampleRunQueue: { add: vi.fn() },
+}));
 
 function mapProblem(p: any) {
   return {
@@ -84,6 +121,14 @@ vi.mock('../src/db/index.js', () => {
               if (table === problems) {
                 return Array.from(memoryDb.problems.values()).map(mapProblem);
               }
+              if (table === users) {
+                return Array.from(memoryDb.users.values()).map((u) => ({
+                  id: u.id,
+                  username: u.username,
+                  email: u.email,
+                  role: u.role,
+                }));
+              }
               return Array.from(memoryDb.submissions.values()).map(mapSubmission);
             },
             orderBy: () => ({
@@ -124,6 +169,13 @@ vi.mock('../src/db/index.js', () => {
           },
         }),
       }),
+      delete: (table: unknown) => ({
+        where: async () => {
+          if (table === submissions) {
+            memoryDb.submissions.clear();
+          }
+        },
+      }),
     },
     pool: { query: vi.fn(), end: vi.fn() },
     checkDatabaseConnection: vi.fn().mockResolvedValue(true),
@@ -133,13 +185,95 @@ vi.mock('../src/db/index.js', () => {
 
 import { submissionsService } from '../src/modules/submissions/submissions.service.js';
 import { problemsService } from '../src/modules/problems/problems.service.js';
+import { app } from '../src/app.js';
 
-describe('Submissions Service (AC-SJ-01, AC-SJ-10, AC-SJ-11, AC-FE-04)', () => {
+function cookieFor(userId: string) {
+  const token = jwt.sign({ id: userId, role: Role.USER }, env.JWT_SECRET, { expiresIn: '15m' });
+  return `${env.AUTH_COOKIE_NAME}=${token}`;
+}
+
+function dispatchHttp(
+  method: string,
+  path: string,
+  options: { headers?: Record<string, string>; body?: unknown } = {}
+): Promise<{ status: number; body: any }> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(options.headers || {})) {
+      headers[k.toLowerCase()] = v;
+    }
+
+    const req = {
+      method: method.toUpperCase(),
+      url: path,
+      originalUrl: path,
+      path: path.split('?')[0],
+      headers,
+      body: options.body ?? {},
+      query: {},
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+      header(name: string) {
+        return headers[name.toLowerCase()];
+      },
+      get(name: string) {
+        return headers[name.toLowerCase()];
+      },
+    } as unknown as Request;
+
+    let statusCode = 200;
+    const res = {
+      locals: {},
+      status(code: number) {
+        statusCode = code;
+        return this;
+      },
+      json(payload: unknown) {
+        resolve({ status: statusCode, body: payload });
+        return this;
+      },
+      send(payload: unknown) {
+        resolve({ status: statusCode, body: payload });
+        return this;
+      },
+      setHeader: vi.fn(),
+      getHeader: vi.fn(),
+      removeHeader: vi.fn(),
+      end() {
+        resolve({ status: statusCode, body: undefined });
+        return this;
+      },
+    } as unknown as Response;
+
+    (app as unknown as (r: Request, s: Response, n: NextFunction) => void)(req, res, (err) => {
+      if (err) reject(err);
+    });
+  });
+}
+
+describe('Submissions Service & Day 15 Official Submission API (AC-SJ-01, AC-SJ-10, AC-SJ-11)', () => {
   let problemId: string;
 
   beforeEach(async () => {
     memoryDb.problems.clear();
     memoryDb.submissions.clear();
+    memoryDb.users.clear();
+    mockRedisStore.clear();
+    mockJudgeAdd.mockClear();
+    mockJudgeAdd.mockResolvedValue({ id: 'judge-job-1' });
+    mockJudgeGetJob.mockClear();
+    mockJudgeGetJob.mockResolvedValue(null);
+    state.redisOnline = true;
+
+    memoryDb.users.set(TEST_USER_ID, {
+      id: TEST_USER_ID,
+      username: 'user_a',
+      email: 'a@example.com',
+      password_hash: 'h',
+      role: Role.USER,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
 
     const p = await problemsService.createProblem(TEST_SETTER_ID, {
       title: 'Simple Echo',
@@ -166,6 +300,7 @@ describe('Submissions Service (AC-SJ-01, AC-SJ-10, AC-SJ-11, AC-FE-04)', () => {
     expect(result.id).toBeDefined();
     expect(result.status).toBe(SubmissionStatus.QUEUED);
     expect(elapsed).toBeLessThan(500);
+    expect(mockJudgeAdd).toHaveBeenCalledTimes(1);
 
     const stored = memoryDb.submissions.get(result.id);
     expect(stored).toBeDefined();
@@ -184,5 +319,104 @@ describe('Submissions Service (AC-SJ-01, AC-SJ-10, AC-SJ-11, AC-FE-04)', () => {
     const res = await submissionsService.listSubmissions(TEST_USER_ID, { limit: 2 });
     expect(res.items).toHaveLength(2);
     expect(res.nextCursor).toBeDefined();
+  });
+
+  it('enforces auth, validation, queue-failure compensation, ownership on GET /:id, and rate limits', async () => {
+    const unauth = await dispatchHttp('POST', '/api/submissions', {
+      body: { problemId, code: 'console.log(1)', language: 'javascript' },
+    });
+    expect(unauth.status).toBe(401);
+
+    const userCookie = cookieFor(TEST_USER_ID);
+
+    const badLang = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Cookie: userCookie },
+      body: { problemId, code: 'fn main(){}', language: 'rust' },
+    });
+    expect(badLang.status).toBe(400);
+
+    // Queue enqueue failure compensates by deleting the newly inserted QUEUED row
+    mockJudgeAdd.mockRejectedValueOnce(new Error('BullMQ write failed'));
+    const queueFailRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Cookie: userCookie },
+      body: { problemId, code: 'console.log("queue-fail")', language: 'javascript' },
+    });
+    expect(queueFailRes.status).toBe(503);
+    expect(memoryDb.submissions.size).toBe(0);
+
+    // Valid HTTP 202 submission
+    const okRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Cookie: userCookie },
+      body: { problemId, code: 'console.log("ok-submit")', language: 'javascript' },
+    });
+    expect(okRes.status).toBe(202);
+    expect(okRes.body.data.status).toBe(SubmissionStatus.QUEUED);
+    const subId = okRes.body.data.id as string;
+
+    // Duplicate double-click rejected with 429
+    const dupRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Cookie: userCookie },
+      body: { problemId, code: 'console.log("ok-submit")', language: 'javascript' },
+    });
+    expect(dupRes.status).toBe(429);
+
+    // Owner can read GET /api/submissions/:id
+    const ownerGet = await dispatchHttp('GET', `/api/submissions/${subId}`, {
+      headers: { Cookie: userCookie },
+    });
+    expect(ownerGet.status).toBe(200);
+    expect(ownerGet.body.data.submission.id).toBe(subId);
+
+    // Another user cannot read User A's submission
+    memoryDb.users.clear();
+    memoryDb.users.set(OTHER_USER_ID, {
+      id: OTHER_USER_ID,
+      username: 'user_b',
+      email: 'b@example.com',
+      password_hash: 'h',
+      role: Role.USER,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    const otherGet = await dispatchHttp('GET', `/api/submissions/${subId}`, {
+      headers: { Cookie: cookieFor(OTHER_USER_ID) },
+    });
+    expect(otherGet.status).toBe(403);
+  });
+
+  it('preserves DB row when BullMQ accepted the job before timeout or when enqueue status is ambiguous', async () => {
+    memoryDb.users.set(TEST_USER_ID, {
+      id: TEST_USER_ID,
+      username: 'user_a',
+      email: 'a@example.com',
+      password_hash: 'h',
+      role: Role.USER,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    const userCookie = cookieFor(TEST_USER_ID);
+
+    // Case 1: judgeQueue.add times out/errors, but getJob confirms BullMQ accepted the job -> 202 + row kept
+    mockJudgeAdd.mockRejectedValueOnce(new Error('Queue enqueue timeout'));
+    mockJudgeGetJob.mockResolvedValueOnce({ id: 'accepted-job' });
+
+    const acceptedDespiteTimeout = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Cookie: userCookie },
+      body: { problemId, code: 'console.log("timeout-accepted")', language: 'javascript' },
+    });
+    expect(acceptedDespiteTimeout.status).toBe(202);
+    expect(acceptedDespiteTimeout.body.data.status).toBe(SubmissionStatus.QUEUED);
+    expect(memoryDb.submissions.size).toBe(1);
+
+    // Case 2: judgeQueue.add errors AND getJob errors (ambiguous) -> 503 + DB row NOT deleted
+    mockJudgeAdd.mockRejectedValueOnce(new Error('Queue enqueue timeout'));
+    mockJudgeGetJob.mockRejectedValueOnce(new Error('Redis lookup timeout'));
+
+    const ambiguousRes = await dispatchHttp('POST', '/api/submissions', {
+      headers: { Cookie: userCookie },
+      body: { problemId, code: 'console.log("ambiguous")', language: 'javascript' },
+    });
+    expect(ambiguousRes.status).toBe(503);
+    expect(memoryDb.submissions.size).toBe(2);
   });
 });

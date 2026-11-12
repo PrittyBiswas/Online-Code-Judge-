@@ -8,6 +8,9 @@ export type {
   SampleRunStatus,
   SampleRunOutcome,
   SampleRunResult,
+  Submission,
+  SubmissionStatus,
+  Verdict,
 } from '@judge/shared';
 
 export interface AuthUserDto {
