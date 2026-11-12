@@ -89,7 +89,16 @@ This checklist tracks milestone completion across implementation days.
 - [x] Harden container sysctl (`net.ipv4.ip_unprivileged_port_start=1024`) and refine `SIGKILL`/`137` vs `TLE`/`OLE`/`MLE` classification (`apps/judge-worker/src/sandbox/runner.ts`)
 - [x] Create `docs/test-plan.md` and update `docs/safety.md`, `docs/known-issues.md`, `docs/learning-notes.md`, `README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
 
-## Day 10+ — Upcoming Milestones (Not Started Yet)
+## Day 10 — Authentication Backend & RBAC Hardening
+
+- [x] Enforce server-side `Role.USER` assignment, email normalization, strong password policy (`min(8)`), and `bcrypt` hashing (`registerSchema`, `authService.register`)
+- [x] Deliver JWT strictly in `HttpOnly` cookie (`SameSite=Lax`, `Path=/`, `secure` in production) and omit JWT from JSON responses
+- [x] Require `JWT_SECRET` in production and wire `JWT_EXPIRES_IN` + `AUTH_COOKIE_NAME` in `apps/api/src/config/env.ts` and `.env.example`
+- [x] Harden `requireAuth` to verify cookie JWT + active PostgreSQL user/role, protect `GET /api/auth/me`, and match cookie clearing options in `POST /api/auth/logout`
+- [x] Add comprehensive Vitest unit/HTTP & PostgreSQL integration tests for registration, login, cookies, middleware, RBAC, logout, and `/me`
+- [x] Update `.env.example`, `apps/api/README.md`, `docs/safety.md`, `docs/changelog.md`, `docs/learning-notes.md`, and `docs/project-checklist.md`
+
+## Day 11+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

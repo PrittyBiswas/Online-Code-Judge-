@@ -78,6 +78,14 @@ Run the full automated Docker security attack suite (`apps/judge-worker/tests/sa
 pnpm test:safety
 ```
 
+---
+
+## Authentication, Cookie & CSRF Protection Plan (Day 10)
+
+- **Cookie Security**: Auth JWTs are stored exclusively in an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie (`secure: true` when `NODE_ENV=production`) with `JWT_EXPIRES_IN` expiration (default `15m` in `.env.example`). Tokens are never returned in JSON response bodies.
+- **Database Verification & RBAC**: `requireAuth` validates both the JWT signature/expiration and that the user exists in PostgreSQL, loading their current server-side `role`. `requireRole(...allowedRoles)` enforces deny-by-default `403 Forbidden` responses.
+- **CSRF Assessment & Deferred Plan**: The frontend (`apps/frontend`) proxies `/api/*` through Vite (`http://localhost:5173 -> http://localhost:4000`, same-origin in browser) and `SameSite=Lax` blocks cross-site state-changing form `POST`s while allowing top-level navigation. Before deploying the API and frontend on separate origins (`SameSite=None`), add a double-submit CSRF token (`X-CSRF-Token` header verified against a non-HttpOnly CSRF cookie) or custom-header enforcement on mutating endpoints.
+
 ### 8. Non-Root Execution (`--user 1000:1000`)
 
 - **Why**: Running untrusted code as UID 0 (root) inside a container is extremely dangerous because container escapes would land the attacker as root on the host.

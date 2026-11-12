@@ -49,7 +49,9 @@ const envSchema = z.object({
     .url()
     .default('postgres://judge_user:judge_secret_password@localhost:5432/judge_db'),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
-  JWT_SECRET: z.string().default('super-secret-jwt-key-for-local-judge-testing-32chars!'),
+  JWT_SECRET: z.string().min(32).optional(),
+  JWT_EXPIRES_IN: z.string().default('15m'),
+  AUTH_COOKIE_NAME: z.string().default('token'),
   COOKIE_SECRET: z.string().default('dev-only-cookie-secret-change-me-32chars'),
   MINIO_ENDPOINT: z.string().default('localhost'),
   MINIO_API_PORT: z.coerce.number().optional(),
@@ -68,8 +70,15 @@ const parsed = envSchema.parse({
   REDIS_URL: deriveRedisUrl(process.env),
 });
 
+if (parsed.NODE_ENV === 'production' && !parsed.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable (min 32 chars) is required in production.');
+}
+
+const resolvedJwtSecret = parsed.JWT_SECRET || 'dev-only-jwt-secret-change-me-min-32-chars!';
+
 export const env = {
   ...parsed,
+  JWT_SECRET: resolvedJwtSecret,
   PORT: parsed.API_PORT ?? parsed.PORT,
   MINIO_PORT: parsed.MINIO_API_PORT ?? parsed.MINIO_PORT,
 };

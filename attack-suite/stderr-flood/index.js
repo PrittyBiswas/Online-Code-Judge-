@@ -5,4 +5,3 @@ const chunk = 'E'.repeat(1000) + '\n';
 while (true) {
   process.stderr.write(chunk);
 }
-

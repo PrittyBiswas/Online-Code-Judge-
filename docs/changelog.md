@@ -3,6 +3,20 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 10 (2026-11-12)
+
+### Changed & Hardened
+
+- **Authentication & Registration (`packages/shared/src/schemas/auth.schema.ts`, `apps/api/src/modules/auth/`)**:
+  - Removed client-supplied `role` from `registerSchema` and enforced `Role.USER` on the server in `authService.register()`.
+  - Normalized emails (`trim().toLowerCase()`), enforced minimum 8-character passwords, and used `bcrypt` (`12` rounds in dev/prod, `10` in test).
+  - Removed `token` from `POST /api/auth/register` and `POST /api/auth/login` JSON response bodies; JWT is now delivered strictly in an `HttpOnly` cookie (`SameSite=Lax`, `Path=/`, `secure` in production).
+  - Updated `POST /api/auth/logout` to clear the cookie using matching `httpOnly`, `secure`, `sameSite`, and `path` options.
+  - Protected `GET /api/auth/me` with `requireAuth` (`401 Unauthorized` when unauthenticated).
+- **Cookie-Only DB-Validated Auth Middleware (`apps/api/src/middleware/auth.ts`, `apps/api/src/config/env.ts`)**:
+  - Verified HTTP-only cookie JWTs (`JWT_EXPIRES_IN`), queried PostgreSQL `users` table on every authenticated request so deleted users are rejected (`401`) and `req.user.role` always comes from server-side DB state, and required `JWT_SECRET` in production.
+- **Auth & Integration Tests (`apps/api/tests/auth.test.ts`, `apps/api/tests/postgres.integration.test.ts`)**: Expanded full HTTP tests for registration, login, cookie attributes, middleware (`401`), RBAC (`403`), logout, `/me`, and real PostgreSQL integration.
+
 ## [Unreleased] - Day 9 (2026-11-12)
 
 ### Added

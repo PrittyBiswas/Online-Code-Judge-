@@ -1,8 +1,7 @@
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { ilike, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { registerSchema, LoginInput, Role, ERROR_CODES } from '@judge/shared';
+import { registerSchema, loginSchema, Role, ERROR_CODES } from '@judge/shared';
 import { env } from '../../config/env.js';
 import { db } from '../../db/index.js';
 import { users } from '../../db/schema.js';
@@ -13,19 +12,22 @@ import {
   recordLoginFailure,
   clearLoginFailures,
 } from '../../middleware/rate-limiter.js';
-import { AuthUser } from '../../middleware/auth.js';
+import { AuthUser, signAuthToken } from '../../middleware/auth.js';
 
 type RegisterParams = z.input<typeof registerSchema>;
+type LoginParams = z.input<typeof loginSchema>;
 
 export class AuthService {
   async register(rawInput: RegisterParams): Promise<{ user: AuthUser; token: string }> {
     const input = registerSchema.parse(rawInput);
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedUsername = input.username.trim();
 
     try {
       const existing = await db
         .select({ id: users.id })
         .from(users)
-        .where(or(ilike(users.username, input.username), ilike(users.email, input.email)))
+        .where(or(ilike(users.username, normalizedUsername), ilike(users.email, normalizedEmail)))
         .limit(1);
 
       if (existing.length > 0) {
@@ -36,17 +38,17 @@ export class AuthService {
         );
       }
 
-      const saltRounds = 10;
+      const saltRounds = env.NODE_ENV === 'test' ? 10 : 12;
       const passwordHash = await bcrypt.hash(input.password, saltRounds);
-      const role = input.role || Role.USER;
 
+      // Server always enforces default USER role; client-supplied roles are never trusted.
       const [created] = await db
         .insert(users)
         .values({
-          username: input.username,
-          email: input.email,
+          username: normalizedUsername,
+          email: normalizedEmail,
           passwordHash,
-          role,
+          role: Role.USER,
         })
         .returning({
           id: users.id,
@@ -62,7 +64,7 @@ export class AuthService {
         role: created.role as Role,
       };
 
-      const token = jwt.sign(authUser, env.JWT_SECRET, { expiresIn: '7d' });
+      const token = signAuthToken(authUser);
       return { user: authUser, token };
     } catch (err) {
       throw mapDatabaseError(err, {
@@ -71,8 +73,10 @@ export class AuthService {
     }
   }
 
-  async login(input: LoginInput): Promise<{ user: AuthUser; token: string }> {
-    const identifier = input.usernameOrEmail.trim();
+  async login(rawInput: LoginParams): Promise<{ user: AuthUser; token: string }> {
+    const input = loginSchema.parse(rawInput);
+    const rawIdentifier = (input.email ?? input.usernameOrEmail ?? '').trim();
+    const identifier = rawIdentifier.includes('@') ? rawIdentifier.toLowerCase() : rawIdentifier;
 
     // Check account lockout status (AC-ID-02)
     const isLocked = await checkLoginLockout(identifier);
@@ -114,14 +118,14 @@ export class AuthService {
 
     if (!userRecord) {
       await recordLoginFailure(identifier);
-      // Response does NOT reveal whether user exists (AC-ID-02)
-      throw new AppError(ERROR_CODES.AUTH_INVALID_CREDENTIALS, 'Invalid username or password', 401);
+      // Generic response never reveals whether the account exists (AC-ID-02)
+      throw new AppError(ERROR_CODES.AUTH_INVALID_CREDENTIALS, 'Invalid email or password', 401);
     }
 
     const isMatch = await bcrypt.compare(input.password, userRecord.passwordHash);
     if (!isMatch) {
       await recordLoginFailure(identifier);
-      throw new AppError(ERROR_CODES.AUTH_INVALID_CREDENTIALS, 'Invalid username or password', 401);
+      throw new AppError(ERROR_CODES.AUTH_INVALID_CREDENTIALS, 'Invalid email or password', 401);
     }
 
     // Successful login: clear failure tracking
@@ -134,7 +138,7 @@ export class AuthService {
       role: userRecord.role as Role,
     };
 
-    const token = jwt.sign(authUser, env.JWT_SECRET, { expiresIn: '7d' });
+    const token = signAuthToken(authUser);
     return { user: authUser, token };
   }
 }

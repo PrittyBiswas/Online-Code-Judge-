@@ -156,3 +156,14 @@ A code judge uses a message queue because compiling and running code takes varia
    - Dropping all Linux capabilities (`--cap-drop ALL`) removes kernel privileges such as raw sockets or mounting filesystems, while `--security-opt no-new-privileges` ensures even setuid binaries (`su`, `sudo`) cannot grant elevated privileges.
 3. **Why exit code `137` must not blindly mean `MEMORY_LIMIT_EXCEEDED`**
    - Linux exit code `137` (`128 + 9`) simply means the process received `SIGKILL`. An external wall-clock timeout (`docker kill`), an output-limit kill, or an external `SIGKILL` all produce `137`. Checking `timedOut`, `execFileTimedOut`, `outputExceeded`, runtime OOM errors, and `oomKilled` ensures `TLE`, `OLE`, `RUNTIME_ERROR`, and `MLE` are distinguished accurately.
+
+---
+
+### 14. Secure Cookie Authentication, Password Hashing & RBAC (Day 10)
+
+1. **Why JWTs belong in `HttpOnly` cookies instead of JSON responses**
+   - Returning a JWT in JSON encourages storing it in `localStorage`, where any XSS script can read and steal it. Storing the JWT only in an `HttpOnly`, `SameSite=Lax` cookie prevents JavaScript (`document.cookie`) from accessing the token.
+2. **Why `register` must never accept `role` from the client**
+   - Trusting client-supplied `role: "admin"` allows trivial privilege escalation. Public registration must always assign the lowest-privilege role (`user`) on the server; elevated roles (`problem_setter`, `admin`) must only be granted via trusted server-side administration.
+3. **Why `requireAuth` re-checks PostgreSQL**
+   - A signed JWT remains cryptographically valid until it expires even if the user was deleted or demoted. Querying `users` by `decoded.id` ensures deleted accounts immediately get `401 Unauthorized` and role changes take effect immediately.

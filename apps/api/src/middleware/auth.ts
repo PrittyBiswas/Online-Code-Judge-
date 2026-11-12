@@ -1,6 +1,9 @@
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { Request, Response, NextFunction, CookieOptions } from 'express';
+import jwt, { type SignOptions } from 'jsonwebtoken';
+import { eq } from 'drizzle-orm';
 import { env } from '../config/env.js';
+import { db } from '../db/index.js';
+import { users } from '../db/schema.js';
 import { Role, ERROR_CODES } from '@judge/shared';
 import { AppError } from '../utils/app-error.js';
 
@@ -11,6 +14,11 @@ export interface AuthUser {
   role: Role;
 }
 
+interface JwtPayloadClaims {
+  id: string;
+  role?: Role;
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -19,35 +27,107 @@ declare global {
   }
 }
 
-export function extractUserFromToken(req: Request): AuthUser | null {
-  // Check HTTP-only cookie first (AC-ID-01)
-  let token = req.cookies?.token;
+export function parseDurationToMs(duration: string): number {
+  const match = /^(\d+)([smhd])$/i.exec(duration.trim());
+  if (!match) return 15 * 60 * 1000;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const multipliers: Record<string, number> = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+  return amount * multipliers[unit];
+}
 
-  // Fallback to Bearer token header if present
-  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
-    token = req.headers.authorization.substring(7);
+export function getAuthCookieOptions(): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: parseDurationToMs(env.JWT_EXPIRES_IN),
+  };
+}
+
+export function getClearAuthCookieOptions(): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+  };
+}
+
+export function signAuthToken(user: AuthUser): string {
+  const payload: JwtPayloadClaims = { id: user.id, role: user.role };
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'],
+  });
+}
+
+export async function extractUserFromToken(req: Request): Promise<AuthUser | null> {
+  const token = req.cookies?.[env.AUTH_COOKIE_NAME];
+  if (!token || typeof token !== 'string') return null;
+
+  let decoded: JwtPayloadClaims;
+  try {
+    decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayloadClaims;
+  } catch {
+    return null;
   }
 
-  if (!token) return null;
+  if (!decoded?.id || typeof decoded.id !== 'string') {
+    return null;
+  }
 
   try {
-    const decoded = jwt.verify(token, env.JWT_SECRET) as AuthUser;
-    return decoded;
+    const [dbUser] = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        role: users.role,
+      })
+      .from(users)
+      .where(eq(users.id, decoded.id))
+      .limit(1);
+
+    if (!dbUser) {
+      return null;
+    }
+
+    return {
+      id: dbUser.id,
+      username: dbUser.username,
+      email: dbUser.email,
+      role: dbUser.role as Role,
+    };
   } catch {
     return null;
   }
 }
 
-export function requireAuth(req: Request, _res: Response, next: NextFunction) {
-  const user = extractUserFromToken(req);
-  if (!user) {
-    throw new AppError(ERROR_CODES.AUTH_UNAUTHORIZED, 'Authentication required', 401);
+export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
+  try {
+    const user = await extractUserFromToken(req);
+    if (!user) {
+      return next(new AppError(ERROR_CODES.AUTH_UNAUTHORIZED, 'Authentication required', 401));
+    }
+    req.user = user;
+    return next();
+  } catch (err) {
+    return next(err);
   }
-  req.user = user;
-  next();
 }
 
-export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
-  req.user = extractUserFromToken(req) || undefined;
-  next();
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  try {
+    req.user = (await extractUserFromToken(req)) || undefined;
+    return next();
+  } catch {
+    req.user = undefined;
+    return next();
+  }
 }

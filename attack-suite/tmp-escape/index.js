@@ -45,4 +45,3 @@ try {
 
 console.log(JSON.stringify(report));
 process.exit(1);
-

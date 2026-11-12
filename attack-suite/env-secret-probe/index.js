@@ -15,4 +15,3 @@ console.log(
     envKeys: Object.keys(process.env),
   })
 );
-

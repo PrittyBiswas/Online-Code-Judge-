@@ -21,7 +21,7 @@ async function dispatchHttp(
   method: string,
   url: string,
   options: { body?: unknown; headers?: Record<string, string> } = {}
-): Promise<{ status: number; body: any }> {
+): Promise<{ status: number; body: any; setCookies: string[]; cookieHeader: string }> {
   const res = await fetch(`${baseUrl}${url}`, {
     method,
     headers: {
@@ -31,7 +31,19 @@ async function dispatchHttp(
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
   const text = await res.text();
-  return { status: res.status, body: text ? JSON.parse(text) : null };
+  const setCookies =
+    typeof res.headers.getSetCookie === 'function'
+      ? res.headers.getSetCookie()
+      : res.headers.get('set-cookie')
+        ? [res.headers.get('set-cookie') as string]
+        : [];
+  const cookieHeader = setCookies.map((c) => c.split(';')[0]).join('; ');
+  return {
+    status: res.status,
+    body: text ? JSON.parse(text) : null,
+    setCookies,
+    cookieHeader,
+  };
 }
 
 describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
@@ -100,7 +112,6 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
       username: `u_${runTag}`,
       email: `u_${runTag}@judge.local`,
       password: 'Password123!',
-      role: Role.USER,
     });
     createdUserIds.push(reg.user.id);
 
@@ -153,7 +164,6 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
       username: `setter_${runTag}`,
       email: `setter_${runTag}@judge.local`,
       password: 'SetterPass123!',
-      role: Role.PROBLEM_SETTER,
     });
     createdUserIds.push(setter.user.id);
 
@@ -253,12 +263,18 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     });
     expect(httpReg.status).toBe(201);
     expect(httpReg.body.data.user.passwordHash).toBeUndefined();
+    expect(httpReg.body.data.user.role).toBe(Role.USER); // Server ignores client-supplied role
+    expect(httpReg.body.data.token).toBeUndefined(); // JWT is strictly in HTTP-only cookie
     const userId = httpReg.body.data.user.id as string;
-    const token = httpReg.body.data.token as string;
+    const cookie = httpReg.cookieHeader;
+    expect(cookie).toContain('token=');
     createdUserIds.push(userId);
 
+    // Promote user to ADMIN in PostgreSQL (trusted server-side role assignment)
+    await db.update(users).set({ role: Role.ADMIN }).where(eq(users.id, userId));
+
     const httpProblem = await dispatchHttp('POST', '/api/problems', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: {
         title: `HTTP Problem ${runTag}`,
         statement: 'Print output.',
@@ -273,7 +289,7 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     createdProblemIds.push(problemId);
 
     const httpSubmit = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: {
         problemId,
         code: 'console.log("hi");',
@@ -285,7 +301,7 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     const submissionId = httpSubmit.body.data.id as string;
 
     const httpGetSub = await dispatchHttp('GET', `/api/submissions/${submissionId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
     });
     expect(httpGetSub.status).toBe(200);
     expect(httpGetSub.body.data.submission.status).toBe(SubmissionStatus.QUEUED);
@@ -330,7 +346,7 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     const missingRes = await dispatchHttp(
       'GET',
       '/api/submissions/00000000-0000-4000-8000-000000000000',
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: { Cookie: cookie } }
     );
     expect(missingRes.status).toBe(404);
   });
@@ -341,16 +357,31 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
         username: `edge_${runTag}`,
         email: `edge_${runTag}@judge.local`,
         password: 'EdgeUserPass123!',
-        role: Role.ADMIN,
       },
     });
     expect(reg.status).toBe(201);
     const userId = reg.body.data.user.id as string;
-    const token = reg.body.data.token as string;
     createdUserIds.push(userId);
+    await db.update(users).set({ role: Role.ADMIN }).where(eq(users.id, userId));
+
+    const loginRes = await dispatchHttp('POST', '/api/auth/login', {
+      body: {
+        email: `EDGE_${runTag}@judge.local`,
+        password: 'EdgeUserPass123!',
+      },
+    });
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.data.user.role).toBe(Role.ADMIN);
+    expect(loginRes.body.data.token).toBeUndefined();
+    const cookie = loginRes.cookieHeader;
+
+    const meRes = await dispatchHttp('GET', '/api/auth/me', { headers: { Cookie: cookie } });
+    expect(meRes.status).toBe(200);
+    expect(meRes.body.data.user.id).toBe(userId);
+    expect(meRes.body.data.user.passwordHash).toBeUndefined();
 
     const probRes = await dispatchHttp('POST', '/api/problems', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: {
         title: `Edge SSE Problem ${runTag}`,
         statement: 'Return echo',
@@ -366,32 +397,32 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
 
     // 1. Malformed payloads rejected cleanly with HTTP 400 (not 500)
     const emptyCodeRes = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: { problemId, code: '', language: 'javascript' },
     });
     expect(emptyCodeRes.status).toBe(400);
 
     const missingCodeRes = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: { problemId, language: 'javascript' },
     });
     expect(missingCodeRes.status).toBe(400);
 
     const badLangRes = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: { problemId, code: 'print(1)', language: 'rust' },
     });
     expect(badLangRes.status).toBe(400);
 
     const missingProbRes = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: { code: 'console.log(1)', language: 'javascript' },
     });
     expect(missingProbRes.status).toBe(400);
 
     // 2. Valid submission -> verify SSE catch-up stream & Redis Pub/Sub live verdict event
     const subRes = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Cookie: cookie },
       body: { problemId, code: 'console.log(1)', language: 'javascript' },
     });
     expect(subRes.status).toBe(202);
