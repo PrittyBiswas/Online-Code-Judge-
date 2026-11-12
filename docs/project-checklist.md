@@ -82,7 +82,14 @@ This checklist tracks milestone completion across implementation days.
 - [x] Fix verified Day 8 bugs: user exit `125`/`126`/`127` misclassification (`runner.ts`), async Redis SSE readiness (`sse.ts`), and corrupted/empty worker payload guards (`judgeProcessor.ts`)
 - [x] Update `docs/learning-notes.md`, `apps/judge-worker/README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
 
-## Day 9+ — Upcoming Milestones (Not Started Yet)
+## Day 9 — Sandbox Security Attack Suite (`SAFE-01` to `SAFE-09`)
+
+- [x] Implement automated live Docker security suite (`apps/judge-worker/tests/safety-suite.integration.test.ts` / `pnpm test:safety`) covering `SAFE-01` through `SAFE-09`
+- [x] Separate hostile probe fixtures (`attack-suite/stderr-flood/`, `tmp-escape/`, `env-secret-probe/`) from assertions and update `attack-suite/README.md`
+- [x] Harden container sysctl (`net.ipv4.ip_unprivileged_port_start=1024`) and refine `SIGKILL`/`137` vs `TLE`/`OLE`/`MLE` classification (`apps/judge-worker/src/sandbox/runner.ts`)
+- [x] Create `docs/test-plan.md` and update `docs/safety.md`, `docs/known-issues.md`, `docs/learning-notes.md`, `README.md`, `docs/changelog.md`, and `docs/project-checklist.md`
+
+## Day 10+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

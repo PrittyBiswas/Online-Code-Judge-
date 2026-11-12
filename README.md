@@ -137,7 +137,8 @@ pnpm format:check
 pnpm typecheck
 pnpm build
 pnpm test              # Offline unit tests
-pnpm test:integration  # Live PostgreSQL CRUD integration tests (requires running Docker Postgres)
+pnpm test:integration  # Live API + Postgres + BullMQ + MinIO + Worker integration tests
+pnpm test:safety       # Live Docker sandbox security attack suite (SAFE-01 to SAFE-09)
 ```
 
 ---

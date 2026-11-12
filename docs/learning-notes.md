@@ -145,3 +145,14 @@ A code judge uses a message queue because compiling and running code takes varia
    - **Async Redis SSE subscription (`apps/api/src/events/sse.ts`)**: `SSEManager` previously checked `isRedisHealthy()` synchronously at module import time and missed subscribing if Redis finished connecting asynchronously after startup. Fixed by attaching a `'ready'` listener on `redisSubscriber` so SSE always subscribes reliably.
    - **Corrupted/empty worker payloads (`apps/judge-worker/src/processor/judgeProcessor.ts`)**: Safely guarded null/non-object payloads, empty/whitespace source code, and missing test/problem cases via a shared permanent-failure helper that saves `INTERNAL_ERROR`, publishes the terminal SSE event, and throws `PermanentWorkerError`.
    - **Leaderboard score encoding (`packages/shared/src/utils/score.ts`)**: Fixed `decodeLeaderboardScore(0)` returning `10,000,000` penalty on uninitialized users (`rawScore === null`) and fixed `encodeLeaderboardScore(1, 0)` off-by-one overflow (`20,000,000` decoding as `2` solved instead of `1`) using `MAX_PENALTY = PENALTY_OFFSET - 1`.
+
+---
+
+### 13. Container Security Boundaries & Attack Suite (`SAFE-01` to `SAFE-09`, Day 9)
+
+1. **Why `--sysctl net.ipv4.ip_unprivileged_port_start=1024` matters on WSL2**
+   - On Docker Desktop (WSL2), Linux network namespaces default `ip_unprivileged_port_start` to `0`, allowing non-root UID `1000` to bind port `80` inside its isolated namespace. Explicitly setting `--sysctl net.ipv4.ip_unprivileged_port_start=1024` restores standard Linux unprivileged port restrictions so privileged binds fail with `EACCES`.
+2. **Why `CapEff: 0000000000000000` and `NoNewPrivs: 1` matter**
+   - Dropping all Linux capabilities (`--cap-drop ALL`) removes kernel privileges such as raw sockets or mounting filesystems, while `--security-opt no-new-privileges` ensures even setuid binaries (`su`, `sudo`) cannot grant elevated privileges.
+3. **Why exit code `137` must not blindly mean `MEMORY_LIMIT_EXCEEDED`**
+   - Linux exit code `137` (`128 + 9`) simply means the process received `SIGKILL`. An external wall-clock timeout (`docker kill`), an output-limit kill, or an external `SIGKILL` all produce `137`. Checking `timedOut`, `execFileTimedOut`, `outputExceeded`, runtime OOM errors, and `oomKilled` ensures `TLE`, `OLE`, `RUNTIME_ERROR`, and `MLE` are distinguished accurately.

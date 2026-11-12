@@ -3,6 +3,18 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 9 (2026-11-12)
+
+### Added
+
+- **Automated Sandbox Security Attack Suite (`apps/judge-worker/tests/safety-suite.integration.test.ts`, `pnpm test:safety`)**: Implemented live Docker verification for `SAFE-01` through `SAFE-09` covering infinite loops (JS/Python TLE), memory exhaustion (JS/Python MLE), fork bombs (`--pids-limit`), network isolation (`--network none` DNS/HTTP/IP/local ports), filesystem isolation (host marker non-visibility, read-only `/`, `/tmp` `noexec` & 16 MB cap), stdout & stderr floods (`OUTPUT_LIMIT_EXCEEDED`), privilege escalation (`UID/GID 1000`, `CapEff: 0`, `NoNewPrivs: 1`, port 80 `EACCES`), cross-run `/tmp` & container cleanup, and live `docker inspect` + `docker-compose.yml` + env-secret boundary checks.
+- **Standalone Attack Fixtures (`attack-suite/stderr-flood/`, `tmp-escape/`, `env-secret-probe/`)**: Separated hostile probe code from test assertions and updated `attack-suite/README.md`.
+- **Security & Test Documentation**: Created `docs/test-plan.md` and updated `docs/safety.md`, `docs/known-issues.md`, `docs/learning-notes.md`, `README.md`, `docs/changelog.md`, and `docs/project-checklist.md`.
+
+### Changed
+
+- **Sandbox Port Hardening & Exit-137 Classification (`apps/judge-worker/src/sandbox/runner.ts`, `src/sandbox/demo.ts`)**: Added `--sysctl net.ipv4.ip_unprivileged_port_start=1024` so privileged port binds fail with `EACCES` even on WSL2 Docker Desktop, tracked `execFileTimedOut` and `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`, and guarded against blindly classifying non-OOM `SIGKILL`/exit `137` as `MEMORY_LIMIT_EXCEEDED`.
+
 ## [Unreleased] - Day 8 (2026-11-12)
 
 ### Added

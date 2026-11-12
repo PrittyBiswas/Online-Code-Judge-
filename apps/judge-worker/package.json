@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests/worker-unit.test.ts",
     "test:integration": "vitest run tests/worker.integration.test.ts",
+    "test:safety": "vitest run tests/safety-suite.integration.test.ts",
     "test:sandbox": "tsx src/sandbox/demo.ts"
   },
   "dependencies": {

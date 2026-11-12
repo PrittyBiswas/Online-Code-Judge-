@@ -23,6 +23,7 @@ docker run \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --cap-drop ALL \
   --security-opt no-new-privileges \
+  --sysctl net.ipv4.ip_unprivileged_port_start=1024 \
   --user 1000:1000 \
   -i \
   node:20-alpine \
@@ -62,10 +63,20 @@ docker run \
 - **Why**: Prevents the untrusted code from modifying system binaries, writing permanent scripts, or creating hidden backdoors in the container image.
 - **Tmpfs scratch space**: `--tmpfs /tmp:rw,noexec,nosuid,size=16m` creates a temporary, memory-backed scratch directory mounted with `noexec` (cannot execute scripts from /tmp) and `nosuid` (cannot escalate privileges), strictly capped at 16MB.
 
-### 7. Privilege Dropping (`--cap-drop ALL` & `--security-opt no-new-privileges`)
+### 7. Privilege Dropping (`--cap-drop ALL`, `--security-opt no-new-privileges`, `--sysctl net.ipv4.ip_unprivileged_port_start=1024`)
 
-- **Why**: Drops all standard Linux capabilities (such as `CAP_NET_RAW`, `CAP_SYS_ADMIN`, `CAP_CHOWN`). `no-new-privileges` prevents SUID binaries from granting higher privileges.
-- **Attack Proved**: `AC-SAFE-07 (Privileges)`.
+- **Why**: Drops all standard Linux capabilities (such as `CAP_NET_RAW`, `CAP_SYS_ADMIN`, `CAP_CHOWN`). `no-new-privileges` prevents SUID binaries from granting higher privileges, and `ip_unprivileged_port_start=1024` blocks binding privileged ports (`< 1024`) even on Docker Desktop WSL2 kernels where namespaces otherwise default `ip_unprivileged_port_start` to `0`.
+- **Attack Proved**: `SAFE-07` (`privilege-check/`) — `CapEff: 0000000000000000`, `NoNewPrivs: 1`, `su` / `chmod +s` / port `80` bind all fail cleanly.
+
+---
+
+## Automated Verification (`SAFE-01` to `SAFE-09`)
+
+Run the full automated Docker security attack suite (`apps/judge-worker/tests/safety-suite.integration.test.ts`):
+
+```powershell
+pnpm test:safety
+```
 
 ### 8. Non-Root Execution (`--user 1000:1000`)
 

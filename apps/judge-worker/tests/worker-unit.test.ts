@@ -1029,4 +1029,58 @@ describe('Judge Engine Edge Cases & Malformed Input Unit Tests (Day 8)', () => {
     expect(realDocker127.verdict).toBe(Verdict.INTERNAL_ERROR);
     expect(realDocker127.infraFailureCategory).toBe('SANDBOX_CONTAINER_START_FAILED');
   });
+
+  it('does not assume exit code 137 is always MLE and enforces sysctl port hardening flags (Day 9)', () => {
+    const args = buildDockerArgs({
+      containerName: 'judge-sandbox-day9-flags',
+      language: 'javascript',
+      memoryLimitMb: 128,
+      cpus: '0.5',
+      pidsLimit: 64,
+    });
+    expect(args).toContain('net.ipv4.ip_unprivileged_port_start=1024');
+
+    // Non-OOM SIGKILL / 137 must map to RUNTIME_ERROR when oomKilled is false and no OOM stderr
+    const nonOom137 = classifySandboxOutcome({
+      timedOut: false,
+      outputExceeded: false,
+      oomKilled: false,
+      error: Object.assign(new Error('killed externally'), { signal: 'SIGKILL' }),
+      exitCode: 137,
+      rawStdout: '',
+      rawStderr: '',
+      durationMs: 120,
+      memoryLimitMb: 128,
+    });
+    expect(nonOom137.verdict).toBe(Verdict.RUNTIME_ERROR);
+
+    // execFile backup timeout kill must classify as TIME_LIMIT_EXCEEDED even on 137/SIGKILL
+    const execTimeout = classifySandboxOutcome({
+      timedOut: false,
+      execFileTimedOut: true,
+      outputExceeded: false,
+      error: Object.assign(new Error('timeout kill'), { killed: true, signal: 'SIGKILL' }),
+      exitCode: 137,
+      rawStdout: '',
+      rawStderr: '',
+      durationMs: 3500,
+      memoryLimitMb: 128,
+    });
+    expect(execTimeout.verdict).toBe(Verdict.TIME_LIMIT_EXCEEDED);
+
+    // maxBuffer overflow must classify as OUTPUT_LIMIT_EXCEEDED
+    const maxBufferRes = classifySandboxOutcome({
+      timedOut: false,
+      outputExceeded: false,
+      error: Object.assign(new Error('maxBuffer exceeded'), {
+        code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+      }),
+      exitCode: null,
+      rawStdout: 'A'.repeat(2048),
+      rawStderr: '',
+      durationMs: 50,
+      memoryLimitMb: 128,
+    });
+    expect(maxBufferRes.verdict).toBe(Verdict.OUTPUT_LIMIT_EXCEEDED);
+  });
 });

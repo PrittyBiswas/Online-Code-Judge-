@@ -149,6 +149,8 @@ export function buildDockerArgs(options: {
     'ALL',
     '--security-opt',
     'no-new-privileges',
+    '--sysctl',
+    'net.ipv4.ip_unprivileged_port_start=1024',
     '--user',
     '1000:1000',
     '-i',
@@ -178,8 +180,10 @@ function parseMemoryAndCleanStderr(rawStderr: string): { stderr: string; memoryU
  */
 export function classifySandboxOutcome(params: {
   timedOut: boolean;
+  execFileTimedOut?: boolean;
   outputExceeded: boolean;
-  error: (Error & { code?: number | string; signal?: string | null }) | null;
+  oomKilled?: boolean;
+  error: (Error & { code?: number | string; signal?: string | null; killed?: boolean }) | null;
   exitCode: number | null;
   rawStdout: string;
   rawStderr: string;
@@ -188,7 +192,9 @@ export function classifySandboxOutcome(params: {
 }): SandboxExecutionResult {
   const {
     timedOut,
+    execFileTimedOut = false,
     outputExceeded,
+    oomKilled,
     error,
     exitCode,
     rawStdout,
@@ -199,7 +205,7 @@ export function classifySandboxOutcome(params: {
   const { stderr: cleanStderr, memoryUsedKb } = parseMemoryAndCleanStderr(rawStderr);
   const boundedStderr = cleanStderr.slice(0, 65536);
 
-  if (timedOut) {
+  if (timedOut || execFileTimedOut) {
     return {
       verdict: Verdict.TIME_LIMIT_EXCEEDED,
       stdout: '',
@@ -210,7 +216,7 @@ export function classifySandboxOutcome(params: {
     };
   }
 
-  if (outputExceeded) {
+  if (outputExceeded || error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
     return {
       verdict: Verdict.OUTPUT_LIMIT_EXCEEDED,
       stdout: rawStdout.slice(0, 1024),
@@ -265,11 +271,13 @@ export function classifySandboxOutcome(params: {
       };
     }
 
-    const isOom =
-      exitCode === 137 ||
-      error.signal === 'SIGKILL' ||
+    const hasOomStderr =
       boundedStderr.includes('heap out of memory') ||
+      boundedStderr.includes('Allocation failed') ||
       boundedStderr.includes('MemoryError');
+    const isSigkillFromCgroupOom =
+      (exitCode === 137 || error.signal === 'SIGKILL') && oomKilled !== false && !error.killed;
+    const isOom = oomKilled === true || hasOomStderr || isSigkillFromCgroupOom;
 
     if (isOom) {
       return {
@@ -376,13 +384,17 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
         const rawStderr = stderr || err || '';
         const exitCode =
           child.exitCode ?? (typeof (error as any)?.code === 'number' ? (error as any).code : null);
+        const execFileTimedOut = Boolean((error as any)?.killed && !killed);
 
         void forceRemoveContainer(containerName).then(() => {
           resolve(
             classifySandboxOutcome({
               timedOut,
+              execFileTimedOut,
               outputExceeded,
-              error: error as (Error & { code?: number | string; signal?: string | null }) | null,
+              error: error as
+                | (Error & { code?: number | string; signal?: string | null; killed?: boolean })
+                | null,
               exitCode,
               rawStdout,
               rawStderr,

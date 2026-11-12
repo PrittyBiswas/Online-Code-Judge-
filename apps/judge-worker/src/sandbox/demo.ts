@@ -5,7 +5,7 @@ import { runInSandbox } from './runner.js';
 interface AttackScenario {
   name: string;
   codePath: string;
-  expectedVerdict: string;
+  expectedVerdicts: string[];
   input: string;
 }
 
@@ -15,31 +15,37 @@ const scenarios: AttackScenario[] = [
   {
     name: 'Infinite Loop → TLE',
     codePath: `${ATTACK_ROOT}/infinite-loop/index.js`,
-    expectedVerdict: 'TIME_LIMIT_EXCEEDED',
+    expectedVerdicts: ['TIME_LIMIT_EXCEEDED'],
     input: '',
   },
   {
     name: 'Memory Bomb → MLE',
     codePath: `${ATTACK_ROOT}/memory-bomb/index.js`,
-    expectedVerdict: 'MEMORY_LIMIT_EXCEEDED',
+    expectedVerdicts: ['MEMORY_LIMIT_EXCEEDED'],
     input: '',
   },
   {
     name: 'Output Flood → OLE',
     codePath: `${ATTACK_ROOT}/output-flood/index.js`,
-    expectedVerdict: 'OUTPUT_LIMIT_EXCEEDED',
+    expectedVerdicts: ['OUTPUT_LIMIT_EXCEEDED'],
     input: '',
   },
   {
-    name: 'Network Attempt → RE',
+    name: 'Network Attempt → RE/TLE (Blocked)',
     codePath: `${ATTACK_ROOT}/network-attempt/index.js`,
-    expectedVerdict: 'RUNTIME_ERROR',
+    expectedVerdicts: ['RUNTIME_ERROR', 'TIME_LIMIT_EXCEEDED'],
+    input: '',
+  },
+  {
+    name: 'Privilege Check → RE (Blocked)',
+    codePath: `${ATTACK_ROOT}/privilege-check/index.js`,
+    expectedVerdicts: ['RUNTIME_ERROR'],
     input: '',
   },
   {
     name: 'Happy Path: 2 + 3 = 5',
     codePath: '',
-    expectedVerdict: 'ACCEPTED',
+    expectedVerdicts: ['ACCEPTED'],
     input: '2 3',
   },
 ];
@@ -83,13 +89,15 @@ async function runAttackSuite(): Promise<void> {
       memoryLimitMb: 128,
     });
 
-    const isPass = result.verdict === scenario.expectedVerdict;
+    const isPass = scenario.expectedVerdicts.includes(result.verdict);
     if (isPass) {
       passed++;
       console.log(`✅ PASS  (verdict: ${result.verdict}, time: ${result.executionTimeMs}ms)`);
     } else {
       failed++;
-      console.log(`❌ FAIL  (expected: ${scenario.expectedVerdict}, got: ${result.verdict})`);
+      console.log(
+        `❌ FAIL  (expected: ${scenario.expectedVerdicts.join(' | ')}, got: ${result.verdict})`
+      );
       if (result.stderr) {
         console.log(`         stderr: ${result.stderr.substring(0, 120)}`);
       }

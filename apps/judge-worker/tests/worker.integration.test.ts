@@ -512,14 +512,12 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–8)', () =>
       code: readFileSync(resolve(attackRoot, 'privilege-check/index.js'), 'utf8'),
       timeLimitMs: 3000,
     });
-    // Non-root UID/GID 1000, su blocked, and chmod +s blocked are always enforced even when
-    // WSL2/LinuxKit sets ip_unprivileged_port_start=0 inside isolated --network none namespaces.
-    expect([Verdict.RUNTIME_ERROR, Verdict.ACCEPTED]).toContain(privRes.verdict);
+    expect(privRes.verdict).toBe(Verdict.RUNTIME_ERROR);
     expect(privRes.stdout).toContain('Running as UID: 1000');
     expect(privRes.stdout).toContain('su blocked (expected)');
     expect(privRes.stdout).toContain('chmod +s blocked (expected)');
-    expect(privRes.stdout).not.toContain('SU BREACH');
-    expect(privRes.stdout).not.toContain('SETUID BREACH');
+    expect(privRes.stdout).toContain('Port 80 bind blocked (expected): EACCES');
+    expect(privRes.stdout).not.toContain('BREACH');
 
     const forkRes = await runInSandbox({
       language: 'javascript',

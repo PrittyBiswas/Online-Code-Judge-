@@ -26,6 +26,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --exclude **/*.integration.test.ts",
     "test:integration": "vitest run apps/api/tests/postgres.integration.test.ts apps/judge-worker/tests/worker.integration.test.ts",
+    "test:safety": "vitest run apps/judge-worker/tests/safety-suite.integration.test.ts",
     "test:watch": "vitest",
     "env:validate": "tsx scripts/verify-environment.ts",
     "infra:verify": "tsx scripts/verify-infrastructure.ts",
