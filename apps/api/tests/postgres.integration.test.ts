@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { Server } from 'http';
 import crypto from 'crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { Role, ProblemDifficulty, REDIS_KEYS, SubmissionStatus, Verdict } from '@judge/shared';
 import { db, checkDatabaseConnection, closeDatabase } from '../src/db/index.js';
 import { redisClient, redisSubscriber, isRedisHealthy } from '../src/config/redis.js';
+import { judgeQueue } from '../src/config/queue.js';
 import { problems, submissions, testCases, users } from '../src/db/schema.js';
 import { authService } from '../src/modules/auth/auth.service.js';
 import { usersService } from '../src/modules/users/users.service.js';
@@ -288,24 +289,42 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     const problemId = httpProblem.body.data.problem.id as string;
     createdProblemIds.push(problemId);
 
-    const httpSubmit = await dispatchHttp('POST', '/api/submissions', {
-      headers: { Cookie: cookie },
-      body: {
-        problemId,
-        code: 'console.log("hi");',
-        language: 'javascript',
-      },
-    });
-    expect(httpSubmit.status).toBe(202);
-    expect(httpSubmit.body.data.status).toBe(SubmissionStatus.QUEUED);
-    const submissionId = httpSubmit.body.data.id as string;
+    // Spy on judgeQueue.add so parallel worker integration suites cannot claim the row before GET verifies initial QUEUED state
+    const queueAddSpy = judgeQueue
+      ? vi.spyOn(judgeQueue, 'add').mockResolvedValueOnce({} as any)
+      : null;
 
-    const httpGetSub = await dispatchHttp('GET', `/api/submissions/${submissionId}`, {
-      headers: { Cookie: cookie },
-    });
-    expect(httpGetSub.status).toBe(200);
-    expect(httpGetSub.body.data.submission.status).toBe(SubmissionStatus.QUEUED);
-    expect(httpGetSub.body.data.submission.verdict).toBeUndefined();
+    let submissionId = '';
+    try {
+      const httpSubmit = await dispatchHttp('POST', '/api/submissions', {
+        headers: { Cookie: cookie },
+        body: {
+          problemId,
+          code: 'console.log("hi");',
+          language: 'javascript',
+        },
+      });
+      expect(httpSubmit.status).toBe(202);
+      expect(httpSubmit.body.data.status).toBe(SubmissionStatus.QUEUED);
+      submissionId = httpSubmit.body.data.id as string;
+
+      if (queueAddSpy) {
+        expect(queueAddSpy).toHaveBeenCalledWith(
+          'evaluate-submission',
+          expect.objectContaining({ submissionId, problemId, userId }),
+          expect.objectContaining({ jobId: submissionId })
+        );
+      }
+
+      const httpGetSub = await dispatchHttp('GET', `/api/submissions/${submissionId}`, {
+        headers: { Cookie: cookie },
+      });
+      expect(httpGetSub.status).toBe(200);
+      expect(httpGetSub.body.data.submission.status).toBe(SubmissionStatus.QUEUED);
+      expect(httpGetSub.body.data.submission.verdict).toBeUndefined();
+    } finally {
+      queueAddSpy?.mockRestore();
+    }
 
     // Service-level listing & status/metrics update
     const userSubs = await submissionsService.listSubmissions(userId, { limit: 10 });

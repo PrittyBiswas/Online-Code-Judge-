@@ -47,4 +47,3 @@ export async function fetchSampleRunResult(
   );
   return envelope.data.sampleRun;
 }
-

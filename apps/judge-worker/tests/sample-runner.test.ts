@@ -97,4 +97,3 @@ describe('Day 14 — Worker Sample Run Processor', () => {
     expect(infraResult.outcome).toBe('INTERNAL_ERROR');
   });
 });
-

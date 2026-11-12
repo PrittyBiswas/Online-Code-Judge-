@@ -51,7 +51,7 @@ pnpm test:integration
 
 ## Sample Code Execution Endpoints (Day 14)
 
-- `POST /api/submissions/run-sample` — Protected (`requireAuth`, `sampleRunRateLimiter` 10/min, `sampleDoubleClickGuard`). Validates `{ problemId, code, language }` (`runSampleSchema.strict()`, rejecting client-supplied `customInput`, limits, or image names), loads only public `sampleInput` and problem resource limits from PostgreSQL, stores initial `QUEUED` state in Redis (`judge:sample:job:<runId>`, `300s` TTL), and enqueues `SampleRunJobData` (`type: 'SAMPLE_RUN'`) onto `sample-run-queue` for the host `judge-worker`. Returns `202 Accepted` `{ data: { runId, status: 'QUEUED' } }`.
+- `POST /api/submissions/run-sample` — Protected (`requireAuth`, `sampleRunRateLimiter` 10/min, `sampleDoubleClickGuard`). Validates `{ problemId, code, language }` (`runSampleSchema.strict()`, rejecting client-supplied `customInput`, limits, or image names), loads only public `sampleInput` and problem resource limits from PostgreSQL, stores initial `QUEUED` state in Redis (`judge:sample:job:<runId>`, `300s` TTL), and enqueues `SampleRunJobData` (`type: 'SAMPLE_RUN'`) onto `sample-run-queue` (`attempts: 1`, `removeOnComplete: true`, `removeOnFail: { age: 300, count: 50 }`) for the host `judge-worker`. Returns `202 Accepted` `{ data: { runId, status: 'QUEUED' } }`.
 - `GET /api/submissions/run-sample/:runId` — Protected (`requireAuth`). Reads sample run state from Redis, enforces strict job ownership (`403 Forbidden` if another user owns `runId`, `404` if missing/expired), and returns bounded `stdout`/`stderr`, outcome, and execution metrics without exposing source code or internal worker data.
 
 ## Endpoints Verified for Day 2

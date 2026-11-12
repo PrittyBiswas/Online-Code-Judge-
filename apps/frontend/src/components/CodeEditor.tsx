@@ -38,4 +38,3 @@ export function CodeEditor({ language, value, onChange, readOnly = false }: Code
     </div>
   );
 }
-

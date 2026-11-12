@@ -324,7 +324,7 @@ Promise.allSettled([
     });
     // Replace the trailing `node -e ...` command with `sleep 10` while keeping every security flag intact
     const runPrefix = args.slice(0, -3);
-    const inspectArgs = [...runPrefix, workerEnv.SANDBOX_DOCKER_IMAGE, 'sleep', '10'];
+    const inspectArgs = [...runPrefix, 'sleep', '10'];
     const detachedArgs = ['run', '-d', ...inspectArgs.slice(1)];
 
     let cid = '';

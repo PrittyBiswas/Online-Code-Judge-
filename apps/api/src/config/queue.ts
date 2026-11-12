@@ -39,8 +39,8 @@ try {
     connection: parseRedisConnectionOptions(env.REDIS_URL),
     defaultJobOptions: {
       attempts: 1,
-      removeOnComplete: 50,
-      removeOnFail: 100,
+      removeOnComplete: true,
+      removeOnFail: { age: 300, count: 50 },
     },
   });
 
