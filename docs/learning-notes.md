@@ -167,3 +167,14 @@ A code judge uses a message queue because compiling and running code takes varia
    - Trusting client-supplied `role: "admin"` allows trivial privilege escalation. Public registration must always assign the lowest-privilege role (`user`) on the server; elevated roles (`problem_setter`, `admin`) must only be granted via trusted server-side administration.
 3. **Why `requireAuth` re-checks PostgreSQL**
    - A signed JWT remains cryptographically valid until it expires even if the user was deleted or demoted. Querying `users` by `decoded.id` ensures deleted accounts immediately get `401 Unauthorized` and role changes take effect immediately.
+
+---
+
+### 15. Redis Login Lockout (Fail-Open) & Frontend Auth State (Day 11)
+
+1. **Why Redis login lockout fails open when Redis is unreachable**
+   - Brute-force lockout (`5` failures -> `15m` lock) relies on Redis counters (`INCR` + `EXPIRE`). If Redis goes down temporarily, failing closed would lock out every legitimate user on the platform. Failing open skips only the Redis lockout lookup while still enforcing PostgreSQL + `bcrypt` password verification.
+2. **Why frontend auth bootstrap distinguishes `401` from network errors**
+   - On startup, calling `GET /api/auth/me` with `withCredentials: true` proves whether the browser holds a valid `HttpOnly` cookie (`200` authenticated vs `401` unauthenticated). A temporary network error is surfaced as a retryable connection error instead of falsely marking the user logged out.
+3. **Why logout clears user-specific caches cleanly**
+   - Even if `POST /api/auth/logout` encounters a network error, clearing in-memory `user` state and user-scoped React Query caches (`['auth']`, `['user']`, `['submissions']`) prevents stale private data from remaining visible while keeping public problem data intact.

@@ -36,15 +36,16 @@ pnpm typecheck
 pnpm build
 ```
 
-## Implemented Today (Day 2)
+## Implemented Today (Day 2 & Day 11)
 
-- Vite + React 18 + TypeScript (strict) + Tailwind CSS foundation.
-- Responsive `MainLayout` and `HomePage` titled **Online Code Judge**.
-- Workspace import from `@judge/shared` verified.
-- Dev proxy forwarding `/api` and `/health` to `http://localhost:4000`.
+- Vite + React 18 + TypeScript (strict) + Tailwind CSS + React Router + TanStack React Query foundation.
+- Responsive `MainLayout` and `HomePage` titled **Online Code Judge**, plus `Header` auth navigation and `Sign out` flow.
+- Centralized Axios client (`src/services/apiClient.ts`, `src/services/authApi.ts`) with `withCredentials: true` for HTTP-only cookies and global `401` session-expiration handling (never storing JWTs in `localStorage`/`sessionStorage`).
+- `AuthProvider` (`src/context/AuthContext.tsx`) bootstrapping via `GET /api/auth/me` (distinguishing `401` unauthenticated from temporary network errors), `LoginPage`, `RegisterPage` (client-side validation, never sending `role`), protected `DashboardPage`, and `ProtectedRoute`.
+- Logout (`POST /api/auth/logout`) clearing in-memory user state and user-specific React Query caches (`['auth']`, `['user']`, `['submissions']`) while leaving public problem caches intact.
+- Automated frontend auth tests (`pnpm --filter @judge/frontend test`).
 
 ## Intentionally Postponed
 
-- Login / Register screens and protected routes.
 - Problem list, statement viewer, and Monaco code editor.
 - Live SSE submission updates, leaderboards, contests, and admin views.

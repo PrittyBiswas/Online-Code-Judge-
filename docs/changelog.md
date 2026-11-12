@@ -3,6 +3,21 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 11 (2026-11-12)
+
+### Added
+
+- **Redis Login Lockout & Fail-Open Tests (`apps/api/tests/redis-lockout.test.ts`)**: Verified 5-attempt lockout with normalized keys & TTLs, lockout expiration, failure counter reset on login, fail-open behavior when Redis is unavailable (valid logins succeed, invalid passwords still return `401`), and automatic recovery.
+- **Frontend Authentication Integration (`apps/frontend/src/`)**:
+  - Added `authApi.ts` (`registerUser`, `loginUser`, `logoutUser`, `fetchCurrentUser`) using `apiClient` (`withCredentials: true`) plus centralized `401` session-expiration handling and `getApiErrorMessage()`.
+  - Added `AuthContext.tsx` (`AuthProvider` / `useAuth`) bootstrapping via `GET /api/auth/me`, distinguishing `401` from temporary network errors, and clearing user-specific React Query caches on logout.
+  - Added `LoginPage.tsx`, `RegisterPage.tsx` (matching Day 10 validation without role fields), `DashboardPage.tsx`, `ProtectedRoute.tsx`, and updated `Header.tsx`, `App.tsx`, and `main.tsx`.
+- **Frontend Auth Test Suite (`apps/frontend/tests/auth.test.tsx`, `pnpm --filter @judge/frontend test`)**: Added jsdom + React Testing Library tests covering form rendering, validation, login/register flows, `/api/auth/me` bootstrap (`200`/`401`/network error), `ProtectedRoute`, `logout` + cache cleanup, and `withCredentials`.
+
+### Changed
+
+- **Documentation**: Updated `apps/frontend/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, and `docs/project-checklist.md`.
+
 ## [Unreleased] - Day 10 (2026-11-12)
 
 ### Changed & Hardened

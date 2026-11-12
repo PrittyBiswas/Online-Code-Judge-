@@ -82,7 +82,8 @@ pnpm test:safety
 
 ## Authentication, Cookie & CSRF Protection Plan (Day 10)
 
-- **Cookie Security**: Auth JWTs are stored exclusively in an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie (`secure: true` when `NODE_ENV=production`) with `JWT_EXPIRES_IN` expiration (default `15m` in `.env.example`). Tokens are never returned in JSON response bodies.
+- **Cookie Security**: Auth JWTs are stored exclusively in an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie (`secure: true` when `NODE_ENV=production`) with `JWT_EXPIRES_IN` expiration (default `15m` in `.env.example`). Tokens are never returned in JSON response bodies and never stored in `localStorage` or `sessionStorage`.
+- **Redis Login Lockout & Fail-Open Policy (Day 11)**: Failed logins increment normalized keys (`judge:auth:fail:<identifier>` with `300s` TTL) and lock out after `5` failures (`judge:auth:lockout:<identifier>` with `900s` TTL, HTTP `423`). Successful login resets the counters. If Redis is unavailable, login **fails open** for lockout checks while still strictly verifying passwords via PostgreSQL and `bcrypt` (never bypassing auth or leaking Redis internals).
 - **Database Verification & RBAC**: `requireAuth` validates both the JWT signature/expiration and that the user exists in PostgreSQL, loading their current server-side `role`. `requireRole(...allowedRoles)` enforces deny-by-default `403 Forbidden` responses.
 - **CSRF Assessment & Deferred Plan**: The frontend (`apps/frontend`) proxies `/api/*` through Vite (`http://localhost:5173 -> http://localhost:4000`, same-origin in browser) and `SameSite=Lax` blocks cross-site state-changing form `POST`s while allowing top-level navigation. Before deploying the API and frontend on separate origins (`SameSite=None`), add a double-submit CSRF token (`X-CSRF-Token` header verified against a non-HttpOnly CSRF cookie) or custom-header enforcement on mutating endpoints.
 

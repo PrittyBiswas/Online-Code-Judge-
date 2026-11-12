@@ -98,7 +98,15 @@ This checklist tracks milestone completion across implementation days.
 - [x] Add comprehensive Vitest unit/HTTP & PostgreSQL integration tests for registration, login, cookies, middleware, RBAC, logout, and `/me`
 - [x] Update `.env.example`, `apps/api/README.md`, `docs/safety.md`, `docs/changelog.md`, `docs/learning-notes.md`, and `docs/project-checklist.md`
 
-## Day 11+ — Upcoming Milestones (Not Started Yet)
+## Day 11 — Redis Login Protection & Authentication Frontend
+
+- [x] Verify Redis login lockout (`INCR`/`EXPIRE`/lockout TTL), failure reset on login, and fail-open behavior (`apps/api/tests/redis-lockout.test.ts`)
+- [x] Implement frontend auth API integration (`src/services/authApi.ts`, `apiClient.ts` `withCredentials` & `401` interceptor)
+- [x] Implement `AuthProvider` (`src/context/AuthContext.tsx`), `ProtectedRoute.tsx`, `LoginPage.tsx`, `RegisterPage.tsx`, `DashboardPage.tsx`, and `Header.tsx` logout/cache cleanup
+- [x] Add frontend Vitest + jsdom + React Testing Library suite (`apps/frontend/tests/auth.test.tsx`)
+- [x] Update `apps/frontend/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, and `docs/project-checklist.md`
+
+## Day 12+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

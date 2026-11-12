@@ -1,15 +1,37 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { MainLayout } from './layouts/MainLayout';
 import { HomePage } from './pages/HomePage';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { AuthProvider } from './context/AuthContext';
 import { useHealthCheck } from './hooks/useHealthCheck';
 
-export function App() {
+export function AppRoutes() {
   const { status, data } = useHealthCheck();
 
   return (
-    <MainLayout apiStatus={status}>
-      <HomePage apiStatus={status} healthData={data} />
-    </MainLayout>
+    <AuthProvider>
+      <MainLayout apiStatus={status}>
+        <Routes>
+          <Route path="/" element={<HomePage apiStatus={status} healthData={data} />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+
+          <Route element={<ProtectedRoute />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </MainLayout>
+    </AuthProvider>
   );
+}
+
+export function App() {
+  return <AppRoutes />;
 }
 
 export default App;
