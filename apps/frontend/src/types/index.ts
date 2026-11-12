@@ -4,6 +4,10 @@ export type {
   Role,
   Problem,
   ProblemDifficulty,
+  SupportedLanguage,
+  SampleRunStatus,
+  SampleRunOutcome,
+  SampleRunResult,
 } from '@judge/shared';
 
 export interface AuthUserDto {

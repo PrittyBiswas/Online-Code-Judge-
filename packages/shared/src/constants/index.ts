@@ -27,11 +27,14 @@ export const RATE_LIMITS = {
   LOGIN_LOCKOUT_SECONDS: 900, // 15 minutes lockout window
   LOGIN_WINDOW_SECONDS: 300, // 5 minutes failure window
   SUBMISSIONS_PER_MINUTE: 5,
+  SAMPLE_RUNS_PER_MINUTE: 10,
+  SAMPLE_RUN_TTL_SECONDS: 300,
   DOUBLE_CLICK_GUARD_SECONDS: 3,
 };
 
 export const QUEUES = {
   JUDGE: 'judge-queue',
+  SAMPLE_RUN: 'sample-run-queue',
   CRON: 'cron-queue',
 };
 
@@ -41,6 +44,10 @@ export const REDIS_KEYS = {
   AUTH_LOCKOUT: (target: string) => `judge:auth:lockout:${target}`,
   SUBMISSION_RATE: (userId: string) => `judge:rate:sub:${userId}`,
   DOUBLE_CLICK_GUARD: (userId: string, hash: string) => `judge:guard:sub:${userId}:${hash}`,
+  SAMPLE_RUN_RATE: (userId: string) => `judge:rate:sample:${userId}`,
+  SAMPLE_DOUBLE_CLICK_GUARD: (userId: string, hash: string) =>
+    `judge:guard:sample:${userId}:${hash}`,
+  SAMPLE_RUN_JOB: (runId: string) => `judge:sample:job:${runId}`,
   PROBLEM_CACHE: (idOrSlug: string) => `judge:cache:problem:${idOrSlug}`,
   PROBLEMS_LIST_VERSION: 'judge:cache:problems:list:version',
   PROBLEMS_LIST_CACHE: (version: string | number, queryHash: string) =>

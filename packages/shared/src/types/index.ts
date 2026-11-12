@@ -103,6 +103,46 @@ export interface SubmissionJobData {
   memoryLimitMb: number;
 }
 
+export type SampleRunStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+
+export type SampleRunOutcome =
+  | 'SUCCESS'
+  | 'COMPILATION_ERROR'
+  | 'RUNTIME_ERROR'
+  | 'TIME_LIMIT_EXCEEDED'
+  | 'MEMORY_LIMIT_EXCEEDED'
+  | 'OUTPUT_LIMIT_EXCEEDED'
+  | 'INTERNAL_ERROR';
+
+export interface SampleRunJobData {
+  type: 'SAMPLE_RUN';
+  runId: string;
+  problemId: string;
+  userId: string;
+  code: string;
+  language: SupportedLanguage;
+  sampleInput: string;
+  timeLimitMs: number;
+  memoryLimitMb: number;
+}
+
+export interface SampleRunResult {
+  runId: string;
+  problemId: string;
+  language: SupportedLanguage;
+  status: SampleRunStatus;
+  outcome?: SampleRunOutcome;
+  stdout?: string;
+  stderr?: string;
+  expectedOutput?: string;
+  executionTimeMs?: number;
+  memoryUsedKb?: number;
+  exitCode?: number | null;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SubmissionEvent {
   submissionId: string;
   status: SubmissionStatus | Verdict;

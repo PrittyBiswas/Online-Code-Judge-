@@ -205,3 +205,14 @@ A code judge uses a message queue because compiling and running code takes varia
    - Because the API uses opaque keyset cursors (`nextCursor`) instead of page numbers, `ProblemsPage` keeps a local `cursorStack` of visited cursors. Clicking **Next** pushes the current cursor and advances to `nextCursor`; clicking **Previous** pops back cleanly, and changing any filter or search resets the stack to page 1.
 3. **Safe Text Rendering**
    - Problem statements and sample I/O are rendered strictly as React text nodes (`whitespace-pre-wrap`) inside `<p>` and `<pre><code>`, never `dangerouslySetInnerHTML`, preventing XSS even if a statement contains `<script>` tags.
+
+---
+
+## Day 14 — API Client Reliability, Monaco Editor & Isolated Sample Execution
+
+1. **API Client Reliability Without Refresh Tokens**
+   - Because the backend uses a single `HttpOnly` JWT cookie without a refresh-token endpoint, the frontend never invents client-side token storage or fake refresh calls. Instead, `apiClient.ts` deduplicates simultaneous `401` session-expiration notifications, keeps `403` separate, classifies status/network/timeout errors safely, and retries only idempotent `GET` requests when not aborted.
+2. **Dedicated `sample-run-queue` vs Official `judge-queue`**
+   - Routing sample runs through a separate BullMQ queue (`sample-run-queue`) and `sampleRunProcessor.ts` guarantees sample runs can never enter `processSubmissionJob()`, touch hidden `test_cases`, write `submissions` rows, or update `leaderboard` scores—while still executing inside the exact same host-run Docker sandbox.
+3. **Zero Trust for Client Sample Parameters**
+   - `runSampleSchema.strict()` accepts only `{ problemId, code, language }`. `sampleInput`, `timeLimitMs`, and `memoryLimitMb` are loaded exclusively from PostgreSQL on the server.

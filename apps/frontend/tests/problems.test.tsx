@@ -17,6 +17,16 @@ vi.mock('../src/hooks/useHealthCheck', () => ({
   }),
 }));
 
+vi.mock('@monaco-editor/react', () => ({
+  default: ({ value, onChange }: { value: string; onChange?: (val: string) => void }) => (
+    <textarea
+      aria-label="Source code editor"
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
+  ),
+}));
+
 function makeProblem(overrides: Partial<Problem> = {}): Problem {
   return {
     id: '11111111-1111-4111-8111-111111111111',
@@ -315,4 +325,3 @@ describe('Day 13 — Frontend Problem List & Problem Details', () => {
     expect(screen.getByRole('link', { name: /browse all problems/i })).toBeTruthy();
   });
 });
-

@@ -12,17 +12,18 @@ export const createSubmissionSchema = z.object({
   language: z.enum(['javascript', 'python']).default('javascript'),
 });
 
-export const runSampleSchema = z.object({
-  problemId: z.string().uuid('Invalid problem ID format'),
-  code: z
-    .string()
-    .min(1, 'Code cannot be empty')
-    .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES, {
-      message: `Code size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
-    }),
-  language: z.enum(['javascript', 'python']).default('javascript'),
-  customInput: z.string().optional(),
-});
+export const runSampleSchema = z
+  .object({
+    problemId: z.string().uuid('Invalid problem ID format'),
+    code: z
+      .string()
+      .min(1, 'Code cannot be empty')
+      .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES, {
+        message: `Code size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
+      }),
+    language: z.enum(['javascript', 'python']).default('javascript'),
+  })
+  .strict();
 
 export const querySubmissionsSchema = z.object({
   problemId: z.string().uuid().optional(),

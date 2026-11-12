@@ -123,7 +123,15 @@ This checklist tracks milestone completion across implementation days.
 - [x] Wire `/problems` and `/problems/:id` routes (`App.tsx`), header link (`Header.tsx`), and home CTA (`HomePage.tsx`) without altering auth/protected routes
 - [x] Add frontend problem tests (`apps/frontend/tests/problems.test.tsx`) and update `apps/frontend/README.md`, `docs/changelog.md`, `docs/learning-notes.md`, and `docs/project-checklist.md`
 
-## Day 14+ — Upcoming Milestones (Not Started Yet)
+## Day 14 — API Client Reliability, Code Editor & Sample Execution
+
+- [x] Enhance `apps/frontend/src/services/apiClient.ts` with `classifyApiError()`, single-event `401` deduplication, `403` separation, and `AbortSignal`-aware `getWithRetry()`
+- [x] Implement dedicated `sample-run-queue` + strict `runSampleSchema` + `POST /api/submissions/run-sample` (`202`) + `GET /api/submissions/run-sample/:runId` ownership-protected polling (`300s` Redis TTL)
+- [x] Add `sampleRunProcessor.ts` and `sampleWorker` in `apps/judge-worker` reusing `runInSandbox()` Docker lockdown without touching `submissions`, `test_cases`, MinIO, or `leaderboard`
+- [x] Integrate `@monaco-editor/react` (`CodeEditor.tsx`) and `SampleRunnerPanel.tsx` into `ProblemDetailPage.tsx` for JavaScript & Python with language draft preservation, reset confirmation, and safe text output rendering
+- [x] Add frontend, backend, worker unit tests, and live Docker `sample-run.integration.test.ts`; update documentation
+
+## Day 15+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

@@ -3,6 +3,23 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 14 (2026-11-12)
+
+### Added
+
+- **Dedicated Sample Execution Pipeline (`packages/shared`, `apps/api`, `apps/judge-worker`)**:
+  - Added `QUEUES.SAMPLE_RUN`, `SampleRunJobData`/`SampleRunResult` types, `REDIS_KEYS.SAMPLE_RUN_JOB`/`SAMPLE_RUN_RATE`/`SAMPLE_DOUBLE_CLICK_GUARD`, and strict `runSampleSchema` (rejecting client-supplied `customInput` or limits).
+  - Updated `POST /api/submissions/run-sample` (`202 Accepted`, `sampleRunRateLimiter`, `sampleDoubleClickGuard`) and added `GET /api/submissions/run-sample/:runId` with strict `userId` ownership enforcement (`403` on mismatch, `404` on missing/expired) and `300s` Redis TTL.
+  - Added `processSampleRunJob` (`apps/judge-worker/src/processor/sampleRunProcessor.ts`) and `sampleWorker` in `apps/judge-worker/src/queue/worker.ts` executing JS & Python sample runs inside the existing Docker sandbox with bounded output.
+- **Monaco Code Editor & Sample Runner UI (`apps/frontend`)**:
+  - Enhanced `apiClient.ts` with `classifyApiError()`, single-event `401` deduplication, `403` separation, and `getWithRetry()` respecting `AbortSignal`.
+  - Added `CodeEditor.tsx` (`@monaco-editor/react`), `SampleRunnerPanel.tsx`, and `submissionsApi.ts` integrated into `ProblemDetailPage.tsx` with per-language code preservation, reset confirmation, duplicate-click prevention, polling with `AbortController`, and safe text output rendering.
+- **Tests**: Added `apps/frontend/tests/sample-runner.test.tsx`, `apps/api/tests/sample-run.test.ts`, `apps/judge-worker/tests/sample-runner.test.ts`, and live Docker `apps/judge-worker/tests/sample-run.integration.test.ts`.
+
+### Changed
+
+- **Documentation**: Updated `apps/frontend/README.md`, `apps/api/README.md`, `apps/judge-worker/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, `docs/project-checklist.md`, and `docs/known-issues.md`.
+
 ## [Unreleased] - Day 13 (2026-11-12)
 
 ### Added

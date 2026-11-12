@@ -97,6 +97,13 @@ pnpm infra:verify
 
 ---
 
+## Sample Run Queue Processor (Day 14)
+
+- In addition to `judge-queue`, `startJudgeWorker()` runs a dedicated `sampleWorker` on `sample-run-queue` (`apps/judge-worker/src/processor/sampleRunProcessor.ts`).
+- `processSampleRunJob()` validates `SampleRunJobData` (`type === 'SAMPLE_RUN'`) with Zod, executes `runInSandbox()` using the exact same Docker lockdown flags and resource limits, bounds `stdout`/`stderr` output, and writes `RUNNING`/`COMPLETED`/`FAILED` state to Redis (`judge:sample:job:<runId>`, `300s` TTL) without touching `submissions`, `test_cases`, MinIO, or `leaderboard`.
+
+---
+
 ## Verdict Matrix, Edge Cases & Known Limitations
 
 | Scenario                                                  | Verdict / Behavior                                                               |
@@ -117,6 +124,13 @@ pnpm infra:verify
 - In `JS_BOOTSTRAP`, synchronous `fs.readFileSync(0, 'utf8')` buffers `{ code, input }` inside the container and `/tmp` tmpfs is capped at `16m`; multi-megabyte inputs (>16 MB) exceed container scratch limits by design.
 - Default `SANDBOX_OUTPUT_LIMIT_BYTES` is `65536` bytes (64 KB) unless configured higher via env (`maxOutputBytes`, up to `1048576` in `.env` / `env.ts`).
 - `http.get('http://google.com')` with DNS resolution inside `--network none` may stall until `timeLimitMs` (`TIME_LIMIT_EXCEEDED`), whereas direct IP sockets (`net.connect(80, '1.1.1.1')`) fail immediately (`RUNTIME_ERROR`); both completely prevent network access.
+
+---
+
+## Sample Run Queue Processor (Day 14)
+
+- In addition to `judge-queue`, `startJudgeWorker()` runs a dedicated `sampleWorker` on `sample-run-queue` (`apps/judge-worker/src/processor/sampleRunProcessor.ts`).
+- `processSampleRunJob()` validates `SampleRunJobData` (`type === 'SAMPLE_RUN'`) with Zod, executes `runInSandbox()` using the exact same Docker lockdown flags and resource limits, bounds `stdout`/`stderr` output, and writes `RUNNING`/`COMPLETED`/`FAILED` state to Redis (`judge:sample:job:<runId>`, `300s` TTL) without touching `submissions`, `test_cases`, MinIO, or `leaderboard`.
 
 ---
 

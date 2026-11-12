@@ -29,4 +29,3 @@ export function DifficultyBadge({ difficulty }: DifficultyBadgeProps) {
     </span>
   );
 }
-

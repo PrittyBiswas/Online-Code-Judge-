@@ -4,6 +4,7 @@ import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
 let judgeQueue: Queue | null = null;
+let sampleRunQueue: Queue | null = null;
 
 export function parseRedisConnectionOptions(redisUrl: string) {
   const url = new URL(redisUrl);
@@ -33,8 +34,21 @@ try {
   judgeQueue.on('error', (err) => {
     logger.warn({ err: err.message }, 'BullMQ judge queue error');
   });
+
+  sampleRunQueue = new Queue(QUEUES.SAMPLE_RUN, {
+    connection: parseRedisConnectionOptions(env.REDIS_URL),
+    defaultJobOptions: {
+      attempts: 1,
+      removeOnComplete: 50,
+      removeOnFail: 100,
+    },
+  });
+
+  sampleRunQueue.on('error', (err) => {
+    logger.warn({ err: err.message }, 'BullMQ sample-run queue error');
+  });
 } catch (err: any) {
   logger.warn({ err: err?.message }, 'Failed to initialize BullMQ queue client');
 }
 
-export { judgeQueue };
+export { judgeQueue, sampleRunQueue };

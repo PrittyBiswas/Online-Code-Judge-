@@ -49,6 +49,11 @@ pnpm test:integration
 - `PUT /api/problems/:id` — Protected (`requireAuth`, `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)`). Partially updates problem fields and invalidates detail + list caches.
 - `DELETE /api/problems/:id` — Protected (`requireAuth`, `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)`). Safely archives (`is_archived = true`) when submissions reference the problem (preserving submissions & MinIO objects), or hard-deletes and cleans up MinIO objects when unreferenced, then invalidates detail + list caches.
 
+## Sample Code Execution Endpoints (Day 14)
+
+- `POST /api/submissions/run-sample` — Protected (`requireAuth`, `sampleRunRateLimiter` 10/min, `sampleDoubleClickGuard`). Validates `{ problemId, code, language }` (`runSampleSchema.strict()`, rejecting client-supplied `customInput`, limits, or image names), loads only public `sampleInput` and problem resource limits from PostgreSQL, stores initial `QUEUED` state in Redis (`judge:sample:job:<runId>`, `300s` TTL), and enqueues `SampleRunJobData` (`type: 'SAMPLE_RUN'`) onto `sample-run-queue` for the host `judge-worker`. Returns `202 Accepted` `{ data: { runId, status: 'QUEUED' } }`.
+- `GET /api/submissions/run-sample/:runId` — Protected (`requireAuth`). Reads sample run state from Redis, enforces strict job ownership (`403 Forbidden` if another user owns `runId`, `404` if missing/expired), and returns bounded `stdout`/`stderr`, outcome, and execution metrics without exposing source code or internal worker data.
+
 ## Endpoints Verified for Day 2
 
 - `GET /` — Returns API metadata (`Online Code Judge API`, version, health path) using `@judge/shared`.

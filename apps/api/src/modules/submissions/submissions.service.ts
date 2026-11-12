@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
@@ -8,13 +9,18 @@ import {
   SubmissionStatus,
   Verdict,
   ERROR_CODES,
+  RATE_LIMITS,
+  REDIS_KEYS,
+  SampleRunJobData,
+  SampleRunResult,
+  SampleRunStatus,
   SubmissionJobData,
   SupportedLanguage,
 } from '@judge/shared';
 import { db } from '../../db/index.js';
 import { problems, submissions, type SubmissionRecord } from '../../db/schema.js';
-import { judgeQueue } from '../../config/queue.js';
-import { isRedisHealthy } from '../../config/redis.js';
+import { judgeQueue, sampleRunQueue } from '../../config/queue.js';
+import { redisClient, isRedisHealthy } from '../../config/redis.js';
 import { AppError } from '../../utils/app-error.js';
 import { isUuid, mapDatabaseError } from '../../utils/db-error.js';
 
@@ -115,7 +121,13 @@ export class SubmissionsService {
     };
   }
 
-  async runSample(_userId: string, input: RunSampleInput) {
+  async runSample(
+    userId: string,
+    input: RunSampleInput
+  ): Promise<{ runId: string; status: SampleRunStatus }> {
+    if (!isUuid(userId)) {
+      throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Invalid user reference', 400);
+    }
     if (!isUuid(input.problemId)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
     }
@@ -124,6 +136,8 @@ export class SubmissionsService {
       | {
           sampleInput: string;
           sampleExpectedOutput: string;
+          timeLimitMs: number;
+          memoryLimitMb: number;
           isArchived: boolean;
         }
       | undefined;
@@ -133,6 +147,8 @@ export class SubmissionsService {
         .select({
           sampleInput: problems.sampleInput,
           sampleExpectedOutput: problems.sampleExpectedOutput,
+          timeLimitMs: problems.timeLimitMs,
+          memoryLimitMb: problems.memoryLimitMb,
           isArchived: problems.isArchived,
         })
         .from(problems)
@@ -147,17 +163,102 @@ export class SubmissionsService {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
     }
 
-    const testInput = input.customInput ?? problem.sampleInput;
+    if (!sampleRunQueue || !isRedisHealthy()) {
+      throw new AppError(
+        ERROR_CODES.INTERNAL_ERROR,
+        'Sample execution service is temporarily unavailable.',
+        503
+      );
+    }
 
-    // Sample runs are dispatched via the host judge-worker (not executed inside the API process)
-    return {
-      stdout: '',
-      stderr: 'Sample sandbox execution is handled asynchronously by the host judge-worker.',
-      verdict: Verdict.INTERNAL_ERROR,
-      executionTimeMs: 0,
-      input: testInput,
+    const runId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const initialState: SampleRunResult & { userId: string } = {
+      runId,
+      problemId: input.problemId,
+      userId,
+      language: input.language,
+      status: 'QUEUED',
       expectedOutput: problem.sampleExpectedOutput,
+      createdAt: nowIso,
+      updatedAt: nowIso,
     };
+
+    const jobData: SampleRunJobData = {
+      type: 'SAMPLE_RUN',
+      runId,
+      problemId: input.problemId,
+      userId,
+      code: input.code,
+      language: input.language,
+      sampleInput: problem.sampleInput,
+      timeLimitMs: problem.timeLimitMs,
+      memoryLimitMb: problem.memoryLimitMb,
+    };
+
+    try {
+      await redisClient.set(
+        REDIS_KEYS.SAMPLE_RUN_JOB(runId),
+        JSON.stringify(initialState),
+        'EX',
+        RATE_LIMITS.SAMPLE_RUN_TTL_SECONDS
+      );
+
+      await Promise.race([
+        sampleRunQueue.add('run-sample', jobData, { jobId: runId }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Sample queue enqueue timeout')), 800)
+        ),
+      ]);
+    } catch {
+      await redisClient.del(REDIS_KEYS.SAMPLE_RUN_JOB(runId)).catch(() => {});
+      throw new AppError(
+        ERROR_CODES.INTERNAL_ERROR,
+        'Sample execution service is temporarily unavailable.',
+        503
+      );
+    }
+
+    return {
+      runId,
+      status: 'QUEUED',
+    };
+  }
+
+  async getSampleRunResult(runId: string, currentUserId: string): Promise<SampleRunResult> {
+    if (!isUuid(runId)) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Sample run not found', 404);
+    }
+    if (!isRedisHealthy()) {
+      throw new AppError(
+        ERROR_CODES.INTERNAL_ERROR,
+        'Sample execution service is temporarily unavailable.',
+        503
+      );
+    }
+
+    const raw = await redisClient.get(REDIS_KEYS.SAMPLE_RUN_JOB(runId));
+    if (!raw) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Sample run not found or expired', 404);
+    }
+
+    let parsed: SampleRunResult & { userId?: string };
+    try {
+      parsed = JSON.parse(raw) as SampleRunResult & { userId?: string };
+    } catch {
+      throw new AppError(ERROR_CODES.INTERNAL_ERROR, 'Invalid sample run state', 500);
+    }
+
+    if (parsed.userId !== currentUserId) {
+      throw new AppError(
+        ERROR_CODES.FORBIDDEN,
+        'Access denied: you do not own this sample run',
+        403
+      );
+    }
+
+    const { userId: _ownerId, ...publicResult } = parsed;
+    return publicResult;
   }
 
   async getSubmission(id: string, _currentUserId: string): Promise<Submission> {

@@ -9,7 +9,11 @@ import {
   type LoginRequestPayload,
   type RegisterRequestPayload,
 } from '../services/authApi';
-import { getApiErrorMessage, registerUnauthorizedHandler } from '../services/apiClient';
+import {
+  getApiErrorMessage,
+  registerUnauthorizedHandler,
+  resetUnauthorizedNotification,
+} from '../services/apiClient';
 import type { AuthUserDto } from '../types';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'error';
@@ -84,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (payload: LoginRequestPayload): Promise<AuthUserDto> => {
     const loggedInUser = await loginUser(payload);
+    resetUnauthorizedNotification();
     setUser(loggedInUser);
     setStatus('authenticated');
     setBootstrapError(null);
@@ -93,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (payload: RegisterRequestPayload): Promise<AuthUserDto> => {
     const registeredUser = await registerUser(payload);
+    resetUnauthorizedNotification();
     setUser(registeredUser);
     setStatus('authenticated');
     setBootstrapError(null);

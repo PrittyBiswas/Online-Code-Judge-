@@ -18,7 +18,17 @@ export class SubmissionsController {
     try {
       const input = runSampleSchema.parse(req.body);
       const result = await submissionsService.runSample(req.user!.id, input);
-      return res.status(200).json({ data: result });
+      return res.status(202).json({ data: result });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async getSampleRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { runId } = req.params;
+      const sampleRun = await submissionsService.getSampleRunResult(runId, req.user!.id);
+      return res.status(200).json({ data: { sampleRun } });
     } catch (err) {
       return next(err);
     }

@@ -47,9 +47,12 @@ pnpm build
   - Public routes `/problems` (`ProblemsPage`) and `/problems/:id` (`ProblemDetailPage`, supporting UUID or slug) wired via `src/services/problemsApi.ts` (`GET /api/problems`, `GET /api/problems/:id`) and `@tanstack/react-query` with `AbortSignal` request cancellation.
   - Debounced search (`300ms` via `useDebouncedValue`), `difficulty` and `tag` AND-filters, cursor-based Previous/Next pagination using `nextCursor` (resetting cursors whenever filters/search change), and loading/empty/error/404-not-found UI states.
   - Safe plain-text rendering of problem statements and sample I/O (`whitespace-pre-wrap`, zero `dangerouslySetInnerHTML`) with zero hidden test-case or storage field exposure.
-- Automated frontend auth and problem tests (`pnpm --filter @judge/frontend test`).
+- **API Client Reliability, Monaco Editor & Run Sample Execution (Day 14)**:
+  - Enhanced `src/services/apiClient.ts` with `classifyApiError()` (`400`/`401`/`403`/`404`/`429`/`500+`/timeout/network/cancelled), single-event `401` session-expiration deduplication (never treating `403` or network errors as `401`), and `getWithRetry()` for safe idempotent `GET` requests respecting `AbortSignal`.
+  - Integrated `@monaco-editor/react` (`src/components/CodeEditor.tsx`) and `src/components/SampleRunnerPanel.tsx` into `ProblemDetailPage` for JavaScript & Python with per-language code preservation, reset confirmation dialog, `POST /api/submissions/run-sample` + `GET /api/submissions/run-sample/:runId` polling (`src/services/submissionsApi.ts`), duplicate-click prevention, and safe plain-text `stdout`/`stderr` output display.
+- Automated frontend auth, problem, and sample-runner tests (`pnpm --filter @judge/frontend test`).
 
 ## Intentionally Postponed
 
-- Monaco code editor and submission execution workflow.
-- Live SSE submission updates, leaderboards, contests, and admin views.
+- Official `POST /api/submissions` UI & live SSE submission verdict tracking.
+- Leaderboards, contests, and admin views.

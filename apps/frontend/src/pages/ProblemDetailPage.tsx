@@ -5,6 +5,7 @@ import { AlertCircle, ArrowLeft, Clock, Cpu, FileQuestion, Loader2, Tag } from '
 import { fetchProblemById } from '../services/problemsApi';
 import { getApiErrorMessage } from '../services/apiClient';
 import { DifficultyBadge } from '../components/DifficultyBadge';
+import { SampleRunnerPanel } from '../components/SampleRunnerPanel';
 
 export function ProblemDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -153,7 +154,8 @@ export function ProblemDetailPage() {
           </section>
         </article>
       )}
+
+      {!isLoading && !isError && problem && <SampleRunnerPanel problem={problem} />}
     </div>
   );
 }
-

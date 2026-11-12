@@ -1,12 +1,13 @@
 import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import pino from 'pino';
-import { QUEUES, SubmissionJobData, Verdict } from '@judge/shared';
+import { QUEUES, SampleRunJobData, SubmissionJobData, Verdict } from '@judge/shared';
 import { workerEnv } from '../config/env.js';
 import { closeDatabase } from '../db/index.js';
 import { workerLifecycle } from '../recovery/shutdown.js';
 import { SubmissionRecoveryService } from '../recovery/recoveryService.js';
 import { DrizzleJudgeRepository, processSubmissionJob } from '../processor/judgeProcessor.js';
+import { processSampleRunJob } from '../processor/sampleRunProcessor.js';
 import { classifyWorkerError } from '../utils/errors.js';
 
 const logger = pino({ level: workerEnv.LOG_LEVEL, base: { service: 'judge-worker-queue' } });
@@ -24,6 +25,7 @@ export function parseRedisConnectionOptions(redisUrl: string) {
 
 export interface RunningJudgeWorker {
   worker: Worker<SubmissionJobData>;
+  sampleWorker: Worker<SampleRunJobData>;
   queue: Queue<SubmissionJobData>;
   redisPublisher: Redis;
   recoveryService: SubmissionRecoveryService;
@@ -160,6 +162,27 @@ export async function startJudgeWorker(options?: {
     );
   });
 
+  const sampleWorker = new Worker<SampleRunJobData>(
+    QUEUES.SAMPLE_RUN,
+    async (job) => {
+      return processSampleRunJob(job.data, {
+        redisClient: redisPublisher,
+      });
+    },
+    {
+      connection,
+      concurrency: workerEnv.WORKER_CONCURRENCY,
+      lockDuration: workerEnv.WORKER_LOCK_DURATION_MS,
+    }
+  );
+
+  sampleWorker.on('error', (err) => {
+    logger.error(
+      { failureCategory: 'REDIS_TRANSIENT_ERROR', err: err.message },
+      'BullMQ sample worker runtime error'
+    );
+  });
+
   let sweepTimer: NodeJS.Timeout | null = null;
   if (options?.enableSweeper !== false) {
     const runSweep = () => {
@@ -185,6 +208,7 @@ export async function startJudgeWorker(options?: {
       sweepTimer = null;
     }
     await worker.close();
+    await sampleWorker.close();
     await queue.close().catch(() => {});
     await workerLifecycle.cleanupActiveContainers();
     await redisPublisher.quit().catch(() => {});
@@ -203,5 +227,5 @@ export async function startJudgeWorker(options?: {
     '[Judge-Worker] Host-run BullMQ worker started'
   );
 
-  return { worker, queue, redisPublisher, recoveryService, stop };
+  return { worker, sampleWorker, queue, redisPublisher, recoveryService, stop };
 }

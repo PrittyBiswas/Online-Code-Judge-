@@ -51,4 +51,3 @@ export async function fetchProblemById(idOrSlug: string, signal?: AbortSignal): 
   );
   return response.data.data.problem;
 }
-
