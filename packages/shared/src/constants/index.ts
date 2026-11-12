@@ -42,6 +42,9 @@ export const REDIS_KEYS = {
   SUBMISSION_RATE: (userId: string) => `judge:rate:sub:${userId}`,
   DOUBLE_CLICK_GUARD: (userId: string, hash: string) => `judge:guard:sub:${userId}:${hash}`,
   PROBLEM_CACHE: (idOrSlug: string) => `judge:cache:problem:${idOrSlug}`,
+  PROBLEMS_LIST_VERSION: 'judge:cache:problems:list:version',
+  PROBLEMS_LIST_CACHE: (version: string | number, queryHash: string) =>
+    `judge:cache:problems:list:v${version}:${queryHash}`,
   GLOBAL_LEADERBOARD: 'judge:leaderboard:global',
   CONTEST_LEADERBOARD: (contestId: string) => `judge:leaderboard:contest:${contestId}`,
   CHANNEL_SUBMISSION_EVENTS: 'judge:pubsub:submissions',

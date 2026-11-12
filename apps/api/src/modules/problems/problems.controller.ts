@@ -34,6 +34,16 @@ export class ProblemsController {
     }
   }
 
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = await problemsService.deleteProblem(id);
+      return res.status(200).json({ data: result });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const queryParams = queryProblemsSchema.parse(req.query);

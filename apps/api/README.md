@@ -41,6 +41,14 @@ pnpm test:integration
 - `GET /api/auth/me` — Protected by `requireAuth`; verifies the HTTP-only JWT cookie, confirms the user exists in PostgreSQL, and returns `{ data: { user } }`.
 - **RBAC (`requireRole`)**: Deny-by-default role middleware (`401` unauthenticated, `403` insufficient permissions) trusting only server-side roles loaded from PostgreSQL.
 
+## Problem Management, Search, Storage & Caching (Day 12)
+
+- `GET /api/problems` — Public problem listing supporting PostgreSQL Full-Text Search (`search` via `to_tsvector`/`websearch_to_tsquery` + GIN index `idx_problems_search_gin`), AND-combined filtering (`difficulty`, `tag`, `category`), base64url keyset cursor pagination (`cursor`, `limit` 1–50), and versioned Redis cache-aside (`judge:cache:problems:list:v<version>:<hash>`, `120s` TTL). Rejects malformed cursors or unsupported filter keys (`400`).
+- `GET /api/problems/:id` — Public problem details (by UUID or slug) cached in Redis (`judge:cache:problem:<idOrSlug>`, `300s` TTL). Never returns hidden test cases, MinIO keys, or credentials.
+- `POST /api/problems` — Protected (`requireAuth`, `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)`). Uploads hidden test cases to MinIO/Silo (`judge-testcases`), inserts problem & test-case metadata transactionally, compensates by deleting uploaded MinIO objects on DB failure, and invalidates list caches.
+- `PUT /api/problems/:id` — Protected (`requireAuth`, `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)`). Partially updates problem fields and invalidates detail + list caches.
+- `DELETE /api/problems/:id` — Protected (`requireAuth`, `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)`). Safely archives (`is_archived = true`) when submissions reference the problem (preserving submissions & MinIO objects), or hard-deletes and cleans up MinIO objects when unreferenced, then invalidates detail + list caches.
+
 ## Endpoints Verified for Day 2
 
 - `GET /` — Returns API metadata (`Online Code Judge API`, version, health path) using `@judge/shared`.

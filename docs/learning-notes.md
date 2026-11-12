@@ -178,3 +178,18 @@ A code judge uses a message queue because compiling and running code takes varia
    - On startup, calling `GET /api/auth/me` with `withCredentials: true` proves whether the browser holds a valid `HttpOnly` cookie (`200` authenticated vs `401` unauthenticated). A temporary network error is surfaced as a retryable connection error instead of falsely marking the user logged out.
 3. **Why logout clears user-specific caches cleanly**
    - Even if `POST /api/auth/logout` encounters a network error, clearing in-memory `user` state and user-scoped React Query caches (`['auth']`, `['user']`, `['submissions']`) prevents stale private data from remaining visible while keeping public problem data intact.
+
+---
+
+## Day 12 — PostgreSQL Full-Text Search, Keyset Cursor Pagination & Versioned Redis Cache-Aside
+
+1. **PostgreSQL Full-Text Search (`to_tsvector` + `websearch_to_tsquery` + GIN Index)**
+   - Unlike `ILIKE '%term%'` (which scans every row and cannot use a standard B-tree index), PostgreSQL's GIN index (`idx_problems_search_gin`) indexes stemmed English lexemes across `title` and `statement`.
+   - `websearch_to_tsquery('english', $search)` safely parses user queries via parameterized queries without throwing syntax errors on punctuation.
+2. **Opaque Base64url Keyset Cursor Pagination**
+   - Offset pagination (`OFFSET N`) degrades on deep pages and shifts items when rows are inserted. Keyset pagination encodes `(rank, createdAt, id)` in a validated `base64url` cursor and filters with strict tuple comparison (`(created_at, id) < ($cursorDate, $cursorId)`), preventing duplicate or skipped items even when two problems share the exact same timestamp.
+3. **Versioned Redis Cache-Aside (Zero `KEYS *` Scans)**
+   - Problem details (`judge:cache:problem:<idOrSlug>`) and problem listings (`judge:cache:problems:list:v<version>:<queryHash>`) use cache-aside with TTLs and corrupt-JSON recovery, falling back cleanly to PostgreSQL if Redis is down.
+   - Instead of running dangerous `KEYS *` scans on write, mutations atomically `INCR judge:cache:problems:list:version` after the DB transaction commits so all stale search/filter/page caches expire naturally.
+4. **Safe MinIO Compensation & Submission-Reference Archival**
+   - If `createProblem` uploads test cases to MinIO and the PostgreSQL transaction fails, uploaded MinIO keys are deleted as compensation. If `deleteProblem` finds existing `submissions`, it archives (`is_archived = true`) rather than deleting submission history or MinIO test cases.

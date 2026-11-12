@@ -106,7 +106,16 @@ This checklist tracks milestone completion across implementation days.
 - [x] Add frontend Vitest + jsdom + React Testing Library suite (`apps/frontend/tests/auth.test.tsx`)
 - [x] Update `apps/frontend/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, and `docs/project-checklist.md`
 
-## Day 12+ — Upcoming Milestones (Not Started Yet)
+## Day 12 — Problem Management, Search, MinIO Storage & Redis Caching
+
+- [x] Add GIN full-text search index migration (`drizzle/migrations/0001_tan_hairball.sql`) on `problems` (`title`, `statement`)
+- [x] Implement parameterized PostgreSQL FTS (`websearch_to_tsquery`, `ts_rank`), strict AND filtering (`difficulty`, `tag`, `category`, `search`), and validated `base64url` keyset cursor pagination (`problems.service.ts`, `problem.schema.ts`)
+- [x] Add `DELETE /api/problems/:id` with RBAC (`PROBLEM_SETTER`/`ADMIN`), submission-reference archival safety, and post-DB MinIO cleanup (`problems.routes.ts`, `problems.controller.ts`, `minio.ts`)
+- [x] Implement versioned Redis cache-aside (`getProblem` + `listProblems`), corrupt-JSON recovery, PostgreSQL fallback, and `INCR`-based invalidation (`problems.service.ts`, `REDIS_KEYS`)
+- [x] Expand unit tests (`apps/api/tests/problems.test.ts`) and add live PostgreSQL + Redis + MinIO integration suite (`apps/api/tests/problems.integration.test.ts`)
+- [x] Update `apps/api/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, `docs/project-checklist.md`, and `docs/known-issues.md`
+
+## Day 13+ — Upcoming Milestones (Not Started Yet)
 
 - [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
 - [ ] Complete remaining contest persistence tables & cron recovery jobs

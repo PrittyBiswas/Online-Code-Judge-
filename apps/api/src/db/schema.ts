@@ -62,6 +62,10 @@ export const problems = pgTable(
     index('idx_problems_difficulty').on(table.difficulty),
     index('idx_problems_setter_id').on(table.setterId),
     index('idx_problems_created_at_id').on(table.createdAt, table.id),
+    index('idx_problems_search_gin').using(
+      'gin',
+      sql`to_tsvector('english', coalesce(${table.title}, '') || ' ' || coalesce(${table.statement}, ''))`
+    ),
   ]
 );
 

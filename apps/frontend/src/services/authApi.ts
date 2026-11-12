@@ -41,4 +41,3 @@ export async function fetchCurrentUser(): Promise<AuthUserDto> {
   const response = await apiClient.get<AuthResponseEnvelope>('/api/auth/me');
   return response.data.data.user;
 }
-

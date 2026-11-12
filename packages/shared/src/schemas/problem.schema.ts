@@ -32,13 +32,16 @@ export const createProblemSchema = z.object({
 
 export const updateProblemSchema = createProblemSchema.partial();
 
-export const queryProblemsSchema = z.object({
-  search: z.string().optional(),
-  difficulty: z.nativeEnum(ProblemDifficulty).optional(),
-  tag: z.string().optional(),
-  cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-});
+export const queryProblemsSchema = z
+  .object({
+    search: z.string().max(200).optional(),
+    difficulty: z.nativeEnum(ProblemDifficulty).optional(),
+    tag: z.string().trim().min(1).max(64).optional(),
+    category: z.string().trim().min(1).max(64).optional(),
+    cursor: z.string().trim().min(1).max(512).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .strict();
 
 export type CreateProblemInput = z.infer<typeof createProblemSchema>;
 export type UpdateProblemInput = z.infer<typeof updateProblemSchema>;

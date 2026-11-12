@@ -3,6 +3,23 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 12 (2026-11-12)
+
+### Added
+
+- **PostgreSQL Full-Text Search GIN Index (`apps/api/src/db/schema.ts`, `drizzle/migrations/0001_tan_hairball.sql`)**: Added `idx_problems_search_gin` on `to_tsvector('english', coalesce(title, '') || ' ' || coalesce(statement, ''))`.
+- **`DELETE /api/problems/:id` Endpoint (`problems.routes.ts`, `problems.controller.ts`, `problems.service.ts`)**: Protected by `requireAuth` + `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)` with submission-reference safety (archives `is_archived = true` when submissions exist; hard-deletes and cleans up MinIO objects post-DB-commit when unreferenced).
+- **Live Problem Integration Suite (`apps/api/tests/problems.integration.test.ts`)**: Added real PostgreSQL, Redis, and MinIO tests covering RBAC, PostgreSQL FTS, AND-combined filtering, keyset cursor pagination (including identical timestamps), hidden test-case redaction, Redis cache-aside/invalidation, and safe archival vs hard-delete.
+
+### Changed
+
+- **Problem Search, Filtering, Cursor Pagination & Caching (`apps/api/src/modules/problems/problems.service.ts`, `packages/shared/src/schemas/problem.schema.ts`, `packages/shared/src/constants/index.ts`, `apps/api/src/config/minio.ts`)**:
+  - Replaced `ILIKE` + in-memory search slicing with parameterized SQL `websearch_to_tsquery` + `ts_rank` + `(rank, created_at, id)` keyset cursor pagination using validated `base64url` cursors.
+  - Added strict query schema validation (`category` + `tag` + `difficulty` + `search` with AND semantics; rejects unsupported parameters and malformed cursors with `400`).
+  - Added versioned Redis cache-aside for `listProblems` (`judge:cache:problems:list:v<ver>:<hash>`, `120s` TTL) alongside `getProblem` (`300s` TTL), corrupt-JSON recovery, and atomic `INCR` list invalidation on `create`/`update`/`delete`.
+  - Added `deleteObject` / `deleteObjects` to `minioService` and upload compensation cleanup when `createProblem` DB transactions fail.
+- **Documentation**: Updated `apps/api/README.md`, `docs/safety.md`, `docs/learning-notes.md`, `docs/changelog.md`, `docs/project-checklist.md`, and `docs/known-issues.md`.
+
 ## [Unreleased] - Day 11 (2026-11-12)
 
 ### Added

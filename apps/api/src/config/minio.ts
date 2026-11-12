@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { env } from './env.js';
+import { logger } from '../utils/logger.js';
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -9,7 +10,7 @@ function hmacSha256(key: Buffer | string, value: string): Buffer {
   return crypto.createHmac('sha256', key).update(value, 'utf8').digest();
 }
 
-function buildSignedHeaders(method: 'PUT' | 'GET', key: string, body: string) {
+function buildSignedHeaders(method: 'PUT' | 'GET' | 'DELETE', key: string, body: string) {
   const protocol = env.MINIO_USE_SSL ? 'https' : 'http';
   const host = `${env.MINIO_ENDPOINT}:${env.MINIO_PORT}`;
   const cleanKey = key.replace(/^\/+/, '');
@@ -71,10 +72,54 @@ class MinioService {
         throw new Error(`MinIO PUT responded with ${res.status}`);
       }
       return key;
-    } catch {
-      // Fallback to in-memory cache in offline unit tests
-      this.inMemoryFallback.set(key, content);
-      return key;
+    } catch (err) {
+      if (env.NODE_ENV === 'test') {
+        // Fallback to in-memory cache only in offline unit tests
+        this.inMemoryFallback.set(key, content);
+        return key;
+      }
+      logger.error(
+        { key, status: err instanceof Error ? err.message : 'unknown' },
+        'MinIO PUT failed'
+      );
+      throw new Error('Failed to store test-case object in object storage');
+    }
+  }
+
+  public async deleteObject(key: string): Promise<void> {
+    this.inMemoryFallback.delete(key);
+    try {
+      const { url, headers } = buildSignedHeaders('DELETE', key, '');
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers,
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`MinIO DELETE responded with ${res.status}`);
+      }
+    } catch (err) {
+      if (env.NODE_ENV === 'test') {
+        return;
+      }
+      logger.warn(
+        { key, err: err instanceof Error ? err.message : 'unknown' },
+        'MinIO DELETE failed'
+      );
+      throw new Error('Failed to delete test-case object from object storage');
+    }
+  }
+
+  public async deleteObjects(keys: string[]): Promise<void> {
+    for (const key of keys) {
+      try {
+        await this.deleteObject(key);
+      } catch (err) {
+        logger.warn(
+          { key, err: err instanceof Error ? err.message : 'unknown' },
+          'MinIO cleanup skipped object after failure'
+        );
+      }
     }
   }
 

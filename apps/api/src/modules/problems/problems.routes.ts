@@ -18,4 +18,8 @@ router.put('/:id', requireAuth, requireRole(Role.PROBLEM_SETTER, Role.ADMIN), (r
   problemsController.update(req, res, next)
 );
 
+router.delete('/:id', requireAuth, requireRole(Role.PROBLEM_SETTER, Role.ADMIN), (req, res, next) =>
+  problemsController.delete(req, res, next)
+);
+
 export const problemsRouter = router;
