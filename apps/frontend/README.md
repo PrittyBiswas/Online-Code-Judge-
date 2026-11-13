@@ -50,8 +50,14 @@ pnpm build
 - **API Client Reliability, Monaco Editor, Run Sample & Official Submit + Live SSE (Day 14–16)**:
   - Enhanced `src/services/apiClient.ts` with `classifyApiError()` (`400`/`401`/`403`/`404`/`429`/`500+`/timeout/network/cancelled), single-event `401` session-expiration deduplication (never treating `403` or network errors as `401`), and `getWithRetry()` for safe idempotent `GET` requests respecting `AbortSignal`.
   - Integrated `@monaco-editor/react` (`src/components/CodeEditor.tsx`) and `src/components/SampleRunnerPanel.tsx` into `ProblemDetailPage` for JavaScript & Python with per-language code preservation, reset confirmation dialog, `Run Sample`, and official `Submit` (`POST /api/submissions` -> `202` -> primary `EventSource('/api/submissions/:id/live', { withCredentials: true })` with automatic bounded polling fallback, connection state indicator, `Check Status` recovery, and cleanup on terminal verdict/unmount/navigation).
-- Automated frontend auth, problem, sample-runner, official-submit, and SSE tests (`pnpm --filter @judge/frontend test`).
+- **Global Leaderboard Page (Day 17)**:
+  - Dedicated public route `/leaderboard` (`LeaderboardPage`) and header navigation link using `src/services/leaderboardApi.ts` (`GET /api/leaderboard`) with TanStack Query.
+  - Displays ranked coders in a responsive table with rank badges (#1 Gold, #2 Silver, #3 Bronze), usernames, problems solved, formatted penalty time (`formatPenalty`), and numeric score.
+  - Highlights the authenticated user's entry with an indigo accent and "You" badge.
+  - Full loading skeleton, empty state ("No ranked coders yet"), error alert with retry button, and bounded pagination controls (Previous / Next with total pages indicator).
+  - Strictly presents only public leaderboard fields without exposing private emails or account details.
+- Automated frontend auth, problem, sample-runner, official-submit, SSE, and leaderboard tests (`pnpm --filter @judge/frontend test`).
 
 ## Intentionally Postponed
 
-- Full submission history page, leaderboards, contests, and admin views.
+- Full submission history page, contests, and admin views.

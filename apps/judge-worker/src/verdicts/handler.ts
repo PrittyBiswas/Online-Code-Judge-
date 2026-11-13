@@ -3,6 +3,8 @@ import {
   Verdict,
   SubmissionEvent,
   REDIS_KEYS,
+  RECORD_SOLVE_LUA_SCRIPT,
+  PENALTY_OFFSET,
   encodeLeaderboardScore,
   decodeLeaderboardScore,
 } from '@judge/shared';
@@ -63,23 +65,37 @@ export class VerdictHandler {
       } catch {}
     }
 
-    // 3. Update global leaderboard on first ACCEPTED solve
+    // 3. Atomically update global leaderboard on first ACCEPTED solve (AC-LB-01, AC-LB-02)
     if (finalVerdict === Verdict.ACCEPTED && redisPublisher && redisPublisher.status === 'ready') {
       try {
         const solvedSetKey = `judge:user:${userId}:solved`;
-        const isFirstSolve = await redisPublisher.sadd(solvedSetKey, problemId);
+        const penalty = Math.max(0, Math.floor(evaluation.maxExecutionTimeMs / 1000));
 
-        if (isFirstSolve === 1) {
-          const rawScore = await redisPublisher.zscore(REDIS_KEYS.GLOBAL_LEADERBOARD, userId);
-          const currentScore = rawScore ? parseFloat(rawScore) : 0;
-          const { problemsSolved, totalPenaltySeconds } = decodeLeaderboardScore(currentScore);
-          const penalty = Math.floor(evaluation.maxExecutionTimeMs / 1000);
-
-          const newScore = encodeLeaderboardScore(
-            problemsSolved + 1,
-            totalPenaltySeconds + penalty
+        if (typeof redisPublisher.eval === 'function') {
+          await redisPublisher.eval(
+            RECORD_SOLVE_LUA_SCRIPT,
+            3,
+            solvedSetKey,
+            REDIS_KEYS.GLOBAL_LEADERBOARD,
+            'judge:leaderboard:rebuilding',
+            problemId,
+            userId,
+            penalty,
+            PENALTY_OFFSET
           );
-          await redisPublisher.zadd(REDIS_KEYS.GLOBAL_LEADERBOARD, newScore, userId);
+        } else {
+          // Graceful fallback for mock clients without eval
+          const isFirstSolve = await redisPublisher.sadd(solvedSetKey, problemId);
+          if (isFirstSolve === 1) {
+            const rawScore = await redisPublisher.zscore(REDIS_KEYS.GLOBAL_LEADERBOARD, userId);
+            const currentScore = rawScore ? parseFloat(rawScore) : 0;
+            const { problemsSolved, totalPenaltySeconds } = decodeLeaderboardScore(currentScore);
+            const newScore = encodeLeaderboardScore(
+              problemsSolved + 1,
+              totalPenaltySeconds + penalty
+            );
+            await redisPublisher.zadd(REDIS_KEYS.GLOBAL_LEADERBOARD, newScore, userId);
+          }
         }
       } catch {}
     }

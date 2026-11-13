@@ -64,6 +64,13 @@ export function Header({ apiStatus }: HeaderProps) {
             Problems
           </Link>
 
+          <Link
+            to="/leaderboard"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            Leaderboard
+          </Link>
+
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${statusStyles[apiStatus]}`}
           >

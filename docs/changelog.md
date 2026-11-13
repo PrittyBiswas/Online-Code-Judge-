@@ -3,6 +3,29 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 17 (2026-11-13)
+
+### Added
+
+- **Leaderboard Shared Types & Schemas (`packages/shared/src/schemas/leaderboard.schema.ts`, `packages/shared/src/types/index.ts`)**:
+  - Added `queryLeaderboardSchema` validating `page` (min 1, default 1) and `limit` (min 1, max 100, default 50).
+  - Defined `LeaderboardPagination` (`page`, `limit`, `total`, `totalPages`) and `LeaderboardResponse` (`leaderboard: LeaderboardEntry[]`, `pagination: LeaderboardPagination`).
+- **Bounded Pagination & Deterministic Tie-Breaking in Leaderboard API (`apps/api/src/modules/leaderboard/`)**:
+  - Enhanced `LeaderboardService.getGlobalLeaderboard()` with bounded pagination support from both Redis Sorted Set (`judge:leaderboard:global` via `zcard` and `zrevrange`) and fallback to PostgreSQL.
+  - Hardened database calculation (`computeFromDatabase()` and `rebuildLeaderboard()`) by enforcing `orderBy(asc(submissions.createdAt))` so the user's earliest accepted solve is processed first for accurate penalty calculation.
+  - Implemented deterministic secondary tie-breaking by username and userId when two users have identical score.
+  - Redacted all sensitive user account fields, returning only public leaderboard fields.
+- **Frontend Leaderboard UI (`apps/frontend`)**:
+  - Added dedicated `/leaderboard` route and `LeaderboardPage` (`apps/frontend/src/pages/LeaderboardPage.tsx`).
+  - Added "Leaderboard" navigation link in `Header.tsx`.
+  - Added `fetchLeaderboard()` in `apps/frontend/src/services/leaderboardApi.ts` using `apiClient`.
+  - Displays standings table with rank badges (#1 Gold, #2 Silver, #3 Bronze), problems solved, formatted penalty time, and score.
+  - Highlights the signed-in user's row with an accent background and "You" badge.
+  - Implemented loading skeleton, empty state, error banner with retry button, and responsive pagination controls.
+- **Automated Tests**:
+  - Added `apps/api/tests/leaderboard.test.ts` (`7` tests) covering public access, query validation, tie-breaking, pagination, redaction, admin rebuild, and Redis fallback.
+  - Added `apps/frontend/tests/leaderboard.test.tsx` (`6` tests) covering navigation, loading, empty state, rank rendering, user highlighting, pagination, and error recovery.
+
 ## [Unreleased] - Day 16 (2026-11-12)
 
 ### Added

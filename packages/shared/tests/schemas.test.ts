@@ -5,6 +5,7 @@ import {
   createProblemSchema,
   createSubmissionSchema,
   createContestSchema,
+  queryLeaderboardSchema,
 } from '../src/schemas/index.js';
 import { LIMITS } from '../src/constants/index.js';
 
@@ -139,6 +140,26 @@ describe('Shared Schema Validations', () => {
         endTime: '2026-11-10T12:00:00.000Z',
       };
       expect(createContestSchema.safeParse(invalid).success).toBe(false);
+    });
+  });
+
+  describe('Leaderboard Schemas', () => {
+    it('applies default page and limit when query params are empty', () => {
+      const parsed = queryLeaderboardSchema.parse({});
+      expect(parsed).toEqual({ page: 1, limit: 50 });
+    });
+
+    it('coerces string numbers into integers', () => {
+      const parsed = queryLeaderboardSchema.parse({ page: '3', limit: '25' });
+      expect(parsed).toEqual({ page: 3, limit: 25 });
+    });
+
+    it('rejects invalid page or limit out of bounds', () => {
+      expect(queryLeaderboardSchema.safeParse({ page: 0 }).success).toBe(false);
+      expect(queryLeaderboardSchema.safeParse({ page: -1 }).success).toBe(false);
+      expect(queryLeaderboardSchema.safeParse({ limit: 0 }).success).toBe(false);
+      expect(queryLeaderboardSchema.safeParse({ limit: 101 }).success).toBe(false);
+      expect(queryLeaderboardSchema.safeParse({ page: 'abc' }).success).toBe(false);
     });
   });
 });

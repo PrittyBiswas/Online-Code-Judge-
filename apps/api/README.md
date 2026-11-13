@@ -60,6 +60,11 @@ pnpm test:integration
 - `GET /api/submissions/:id` — Protected (`requireAuth`). Enforces strict ownership (`403 Forbidden` if `submission.userId !== req.user.id`, `404` if missing) and returns public submission status, verdict, `executionTimeMs`, `memoryUsedKb`, and `failedTestIndex` without exposing hidden test-case data.
 - `GET /api/submissions/:id/live` — Protected (`requireAuth`, `HttpOnly` cookie auth—never query-string JWTs). Enforces `404`/`403` submission ownership, registers SSE client before reading PostgreSQL snapshot (buffering in-flight Redis Pub/Sub events to prevent missed updates), enforces monotonic status ordering (`QUEUED -> RUNNING -> COMPLETED`), sends `15s` heartbeats, closes on terminal verdict or Redis drop, and strips source code/hidden test data (`apps/api/src/events/sse.ts`).
 
+## Global Leaderboard Endpoints (Day 17)
+
+- `GET /api/leaderboard` — Public leaderboard supporting bounded pagination (`page` min 1 default 1, `limit` min 1 max 100 default 50). Ranks users by problems solved descending, ties broken by lower penalty time (seconds), and deterministic tie-breaking (by username/userId). Reads live standings from Redis Sorted Set (`judge:leaderboard:global`) with batch username hydration, automatically falling back to parameterized PostgreSQL queries over `submissions` (`verdict = 'ACCEPTED'`) ordered by `createdAt ASC` when Redis is empty or unhealthy. Only exposes public fields (`rank`, `userId`, `username`, `problemsSolved`, `totalPenaltySeconds`, `score`), redacting emails and hashes. Returns `{ data: { leaderboard, pagination } }`.
+- `POST /api/leaderboard/rebuild` — Protected (`requireAuth`, `requireRole(Role.ADMIN)`). Recomputes all user solve counts and penalties from PostgreSQL `submissions` (`ACCEPTED` verdicts), clears and repopulates Redis Sorted Set `judge:leaderboard:global` and user solved sets (`judge:user:<id>:solved`), and returns `{ data: { message, count, rebuiltEntries } }`.
+
 ## Endpoints Verified for Day 2
 
 - `GET /` — Returns API metadata (`Online Code Judge API`, version, health path) using `@judge/shared`.

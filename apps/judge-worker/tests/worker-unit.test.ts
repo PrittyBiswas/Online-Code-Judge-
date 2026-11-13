@@ -426,6 +426,40 @@ describe('Judge Worker Unit Tests (Day 6)', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it('calls atomic Redis eval to record accepted solve and updates leaderboard', async () => {
+    const { submissionId, problemId, userId } = makeFixtures();
+    const publish = vi.fn().mockResolvedValue(1);
+    const evalFn = vi.fn().mockResolvedValue(1);
+    const handler = new VerdictHandler();
+    const processed = await handler.processVerdict({
+      submissionId,
+      problemId,
+      userId,
+      evaluation: {
+        finalVerdict: Verdict.ACCEPTED,
+        results: [],
+        maxExecutionTimeMs: 1500,
+        maxMemoryUsedKb: 1024,
+      },
+      dbUpdateFn: async () => true,
+      redisPublisher: { status: 'ready', publish, eval: evalFn } as any,
+    });
+
+    expect(processed).toBe(true);
+    expect(publish).toHaveBeenCalled();
+    expect(evalFn).toHaveBeenCalledWith(
+      expect.stringContaining('local solvedSetKey = KEYS[1]'),
+      3,
+      `judge:user:${userId}:solved`,
+      'judge:leaderboard:global',
+      'judge:leaderboard:rebuilding',
+      problemId,
+      userId,
+      1,
+      10000000
+    );
+  });
+
   it('tracks and cleans up active container references safely', async () => {
     const dockerExec = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
     const lifecycle = new WorkerLifecycle(dockerExec);

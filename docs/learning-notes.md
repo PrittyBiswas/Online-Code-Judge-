@@ -238,3 +238,22 @@ A code judge uses a message queue because compiling and running code takes varia
    - Tracking `lastRank` (`QUEUED = 0`, `RUNNING = 1`, terminal `COMPLETED`/verdict = `2`) on both backend SSE delivery and frontend `SampleRunnerPanel` guarantees out-of-order or stale events cannot regress `RUNNING` back to `QUEUED`.
 3. **Graceful Polling Fallback Without Duplicate Submissions**
    - If `EventSource` is unavailable or fails repeatedly, the UI closes the stream and switches to existing bounded `GET /api/submissions/:id` polling for the same `submissionId`—never re-calling `POST /api/submissions`.
+
+---
+
+## Day 17 — Global Leaderboard Architecture, Deterministic Tie-Breaking & Redis Fallback
+
+1. **Redis Sorted Sets with Single-Float Composite Scoring**
+   - Storing user rankings in Redis Sorted Sets (`ZADD`, `ZREVRANGE`) allows $O(\log N)$ updates and $O(\log N + M)$ range retrieval for paginated queries.
+   - Encoding both problems solved and penalty seconds into a single floating-point score (`problemsSolved * 10,000,000 + (9,999,999 - boundedPenalty)`) enables Redis to natively sort higher solves first, then break ties by lower penalty time without multiple index lookups.
+2. **Deterministic Tie-Breaking & Ordered First-Solve Ingestion**
+   - In-memory and PostgreSQL fallback calculations must process accepted submissions ordered strictly by `createdAt ASC, id ASC` (`orderBy(asc(submissions.createdAt), asc(submissions.id))`). This ensures that multiple accepted submissions with identical millisecond timestamps produce deterministic first-solve selection, and duplicate accepted submissions on the same problem never inflate penalty or overwrite the authentic first-solve time.
+   - When two users have equal score (identical problems solved and penalty seconds), global secondary sorting by `username ASC` and `userId ASC` ensures rank ordering remains completely deterministic across page boundaries and identical between Redis and PostgreSQL fallback modes.
+3. **Resilient Dual-Engine Leaderboard (Redis + PostgreSQL Source of Truth)**
+   - Redis serves as a fast read-cache and live leaderboard index, but PostgreSQL remains the durable source of truth. If Redis is unavailable, empty, or fails, the API seamlessly falls back to on-demand aggregation from PostgreSQL `submissions` and `users` without throwing 500 errors to clients.
+   - **Atomic Redis Solve Ingestion**: `RECORD_SOLVE_LUA_SCRIPT` validates argument types upfront, checks key types with `TYPE`, verifies `SISMEMBER` to eliminate duplicate solves, and executes `pcall(redis.call, 'ZADD', ...)` with `SREM` rollback compensation to prevent inconsistent state if `ZADD` fails.
+   - **Cache Completeness Verification**: Cache metadata status (`judge:leaderboard:meta:status = 'ready'`) prevents expensive O(N) database scans on paginated queries, while bi-directional member set verification (`dbUserIds` vs `redisUserIds`) detects both missing solvers and unexpected extra members.
+   - **Concurrency-Safe Rebuild & Atomic Dual-Write Protocol**:
+     - **Unified Atomic Lua Script (`RECORD_SOLVE_LUA_SCRIPT`)**: Accepts `solvedSetKey`, `leaderboardKey`, and `rebuildPointerKey`. Atomically executes argument validation, type checking, duplicate solve detection (`SISMEMBER`), user solved set addition (`SADD`), canonical leaderboard score calculation (`ZADD`), and—if a rebuild is currently active—updates the temporary leaderboard and live-solves set (`SADD <tempKey>:livesolves:<userId>`). Eliminates application-level gaps between canonical and temporary writes, preventing race conditions during rebuild publication.
+     - **Atomic Leaderboard Key Swap (`SWAP_LEADERBOARD_KEYS_LUA_SCRIPT`)**: Atomically executes `RENAME tempKey canonicalKey` and `DEL judge:leaderboard:rebuilding` in a single Redis transaction, eliminating any window where concurrent solves could recreate an orphaned temporary key.
+     - **Active Rebuild Watchdog Pointer Renewal**: Heartbeat watchdog runs every 5000ms checking the rebuild lock token. Upon verifying lock ownership, it atomically renews both `judge:lock:leaderboard:rebuild` and `judge:leaderboard:rebuilding` via `pexpire`, preventing pointer expiration during rebuilds lasting longer than the 30-second TTL.

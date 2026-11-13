@@ -12,7 +12,15 @@ export type {
   SubmissionEvent,
   SubmissionStatus,
   Verdict,
+  LeaderboardEntry,
+  LeaderboardPagination,
+  LeaderboardResponse,
 } from '@judge/shared';
+
+export interface LeaderboardQueryParams {
+  page?: number;
+  limit?: number;
+}
 
 export interface AuthUserDto {
   id: string;

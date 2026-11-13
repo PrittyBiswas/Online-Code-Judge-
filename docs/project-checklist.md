@@ -144,7 +144,15 @@ This checklist tracks milestone completion across implementation days.
 - [x] Integrate `EventSource` (`withCredentials: true`) + connection status indicators + bounded polling fallback into `SampleRunnerPanel.tsx` and `submissionsApi.ts`
 - [x] Add backend SSE unit/race tests (`apps/api/tests/sse.test.ts`), expand frontend SSE/fallback tests (`apps/frontend/tests/sample-runner.test.tsx`), and update Day 16 documentation
 
-## Day 17+ — Upcoming Milestones (Not Started Yet)
+## Day 17 — Leaderboard API and Frontend Implementation
 
-- [ ] Build Monaco Editor code submission workflow & live SSE verdict UI in `apps/frontend`
-- [ ] Complete remaining contest persistence tables & cron recovery jobs
+- [x] Define `queryLeaderboardSchema` (`page` min 1, `limit` 1–100), `LeaderboardPagination`, and `LeaderboardResponse` in `@judge/shared`
+- [x] Extend `LeaderboardService` and `LeaderboardController` with bounded pagination, deterministic secondary tie-breaking by username and userId, `createdAt ASC` first-solve order, and automatic Redis/PostgreSQL fallback
+- [x] Implement frontend `/leaderboard` route, `LeaderboardPage.tsx`, Header navigation link, standings table with rank badges, current-user highlighting ("You"), loading skeleton, empty state, and pagination controls
+- [x] Add automated backend tests (`apps/api/tests/leaderboard.test.ts`) and frontend tests (`apps/frontend/tests/leaderboard.test.tsx`) covering ranking, tie-breaking, pagination, security redaction, and user highlighting
+- [x] Update documentation (`apps/api/README.md`, `apps/frontend/README.md`, `docs/test-plan.md`, `docs/changelog.md`, `docs/known-issues.md`, `docs/learning-notes.md`, `docs/project-checklist.md`)
+
+## Day 18+ — Upcoming Milestones (Not Started Yet)
+
+- [ ] Complete remaining contest persistence tables, freeze windows & cron recovery jobs
+- [ ] Build contest participation UI and contest leaderboard view

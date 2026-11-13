@@ -68,3 +68,21 @@ pnpm build
 - **Worker Unit & Integration Tests (`apps/judge-worker/tests/worker-unit.test.ts`, `worker.integration.test.ts`, `sample-run.integration.test.ts`)**: Verify atomic CAS claiming, all test-case evaluation from MinIO/Silo, early stopping, JS/Python verdicts (`ACCEPTED`, `WRONG_ANSWER`, `TLE`, `MLE`, `OLE`, `RE`, `CE`, `INTERNAL_ERROR`), and idempotent verdict persistence.
 - **Frontend Tests (`apps/frontend/tests/sample-runner.test.tsx`)**: Verify official **Submit** (`202` -> `QUEUED` -> `RUNNING` -> `Accepted`), live `EventSource` SSE updates (`withCredentials: true`), terminal/unmount stream cleanup, SSE error -> bounded polling fallback, and **Check Status** recovery without duplicate submission.
 - **Backend SSE Tests (`apps/api/tests/sse.test.ts`, `postgres.integration.test.ts`)**: Verify `401`/`404`/`403` auth & ownership on `GET /api/submissions/:id/live`, snapshot + Pub/Sub buffering race protection, monotonic status ordering, terminal auto-close, secret stripping, and Redis disconnect stream closure.
+
+---
+
+## 5. Day 17 Leaderboard Verification
+
+- **API & Service Tests (`apps/api/tests/leaderboard.test.ts`, `postgres.integration.test.ts`)**:
+  - `GET /api/leaderboard`: Public unauthenticated access returning ranked entries with bounded pagination metadata (`page`, `limit`, `total`, `totalPages`).
+  - Query parameter validation: rejects `page <= 0`, `limit <= 0`, `limit > 100`, or non-numeric parameters with `400 Bad Request`.
+  - Ranking calculation: only `ACCEPTED` submissions contribute; duplicate solves on the same problem only credit once using earliest penalty; tie-breaking by lower penalty time; deterministic secondary sorting by username and userId.
+  - Public data redaction: strictly exposes only `{ rank, userId, username, problemsSolved, totalPenaltySeconds, score }`, never leaking email, password hash, role, source code, or tokens.
+  - Rebuild endpoint: `POST /api/leaderboard/rebuild` requires `ADMIN` role (`401` unauthenticated, `403` standard user, `200` admin).
+  - Caching & Fallback: reads from Redis Sorted Set (`judge:leaderboard:global`) when populated; automatically falls back to PostgreSQL `submissions` and `users` when Redis is empty or unhealthy.
+- **Frontend Tests (`apps/frontend/tests/leaderboard.test.tsx`)**:
+  - Navigation: Header contains `/leaderboard` link.
+  - Standings display: Renders ranked users, rank badges (#1 Gold, #2 Silver, #3 Bronze), solved counts, formatted penalty time, and scores.
+  - Loading, empty & error states: Shows skeleton on initial load, empty state when no ranked users exist, and alert with retry button on API failure.
+  - User highlighting: Identifies and highlights the current authenticated user's row with a "You" badge.
+  - Pagination: Navigates between pages with Previous/Next buttons and updates displayed slice.
