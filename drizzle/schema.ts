@@ -19,6 +19,7 @@ export interface ProblemRow {
   memory_limit_mb: number;
   sample_input: string;
   sample_expected_output: string;
+  visibility: string;
   setter_id: string;
   is_archived: boolean;
   created_at: Date;
@@ -39,6 +40,7 @@ export interface SubmissionRow {
   id: string;
   problem_id: string;
   user_id: string;
+  contest_id?: string | null;
   code: string;
   language: string;
   status: string;
@@ -70,6 +72,7 @@ export interface ContestRow {
   freeze_minutes: number;
   created_by: string;
   created_at: Date;
+  updated_at: Date;
 }
 
 export interface ContestProblemRow {

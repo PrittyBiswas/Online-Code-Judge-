@@ -474,13 +474,28 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     expect(sseBody).toContain('data:');
     expect(sseBody).toContain(Verdict.ACCEPTED);
 
+    // Update submission in PostgreSQL to reflect evaluated ACCEPTED state
+    await db
+      .update(submissions)
+      .set({
+        status: SubmissionStatus.COMPLETED,
+        verdict: Verdict.ACCEPTED,
+        executionTimeMs: 5000,
+      })
+      .where(eq(submissions.id, submissionId));
+
     // 3. Leaderboard integration: idempotent solve recording + HTTP retrieval
     await leaderboardService.recordSolve(userId, problemId, 5);
     await leaderboardService.recordSolve(userId, problemId, 99); // Duplicate solve must not double-count
 
-    const lbRes = await dispatchHttp('GET', '/api/leaderboard');
-    expect(lbRes.status).toBe(200);
-    const entry = (lbRes.body.data.leaderboard as any[]).find((e) => e.userId === userId);
+    const lbRes1 = await dispatchHttp('GET', '/api/leaderboard?page=1&limit=100');
+    const lbRes2 = await dispatchHttp('GET', '/api/leaderboard?page=2&limit=100');
+    expect(lbRes1.status).toBe(200);
+    const allEntries = [
+      ...((lbRes1.body.data?.leaderboard as any[]) || []),
+      ...((lbRes2.body.data?.leaderboard as any[]) || []),
+    ];
+    const entry = allEntries.find((e) => e.userId === userId);
     expect(entry).toBeDefined();
     expect(entry.problemsSolved).toBe(1);
     expect(entry.totalPenaltySeconds).toBe(5);

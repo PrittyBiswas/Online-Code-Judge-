@@ -15,6 +15,13 @@ export type {
   LeaderboardEntry,
   LeaderboardPagination,
   LeaderboardResponse,
+  Contest,
+  ContestStatus,
+  ContestProblem,
+  ContestProblemSummary,
+  ContestRegistrationResponse,
+  ContestUnregistrationResponse,
+  CreateContestInput,
 } from '@judge/shared';
 
 export interface LeaderboardQueryParams {

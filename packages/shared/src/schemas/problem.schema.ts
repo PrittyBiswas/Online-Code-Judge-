@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProblemDifficulty } from '../types/index.js';
+import { ProblemDifficulty, ProblemVisibility } from '../types/index.js';
 import { LIMITS } from '../constants/index.js';
 
 export const testCaseInputSchema = z.object({
@@ -27,6 +27,7 @@ export const createProblemSchema = z.object({
     .default(LIMITS.DEFAULT_MEMORY_LIMIT_MB),
   sampleInput: z.string().default(''),
   sampleExpectedOutput: z.string().default(''),
+  visibility: z.nativeEnum(ProblemVisibility).default(ProblemVisibility.PUBLIC),
   testCases: z.array(testCaseInputSchema).optional().default([]),
 });
 

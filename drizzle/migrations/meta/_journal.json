@@ -15,6 +15,34 @@
       "when": 1794470678351,
       "tag": "0001_tan_hairball",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794583111499,
+      "tag": "0002_add_contests_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794595000000,
+      "tag": "0003_add_problem_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0004_add_problem_visibility_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794610000000,
+      "tag": "0005_add_submission_contest_id",
+      "breakpoints": true
     }
   ]
 }

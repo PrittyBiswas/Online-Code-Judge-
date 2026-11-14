@@ -27,6 +27,11 @@ export enum ProblemDifficulty {
   HARD = 'hard',
 }
 
+export enum ProblemVisibility {
+  PUBLIC = 'public',
+  CONTEST_ONLY = 'contest_only',
+}
+
 export type SupportedLanguage = 'javascript' | 'python';
 
 export interface User {
@@ -49,6 +54,7 @@ export interface Problem {
   memoryLimitMb: number;
   sampleInput: string;
   sampleExpectedOutput: string;
+  visibility: ProblemVisibility;
   setterId: string;
   isArchived: boolean;
   createdAt: string;
@@ -80,6 +86,7 @@ export interface Submission {
   id: string;
   problemId: string;
   userId: string;
+  contestId?: string | null;
   code: string;
   language: SupportedLanguage;
   status: SubmissionStatus;
@@ -188,6 +195,8 @@ export interface RootApiInfo {
   healthEndpoint: string;
 }
 
+export type ContestStatus = 'UPCOMING' | 'RUNNING' | 'ENDED';
+
 export interface Contest {
   id: string;
   title: string;
@@ -199,7 +208,12 @@ export interface Contest {
   isOpen?: boolean;
   isFrozen?: boolean;
   isEnded?: boolean;
+  status?: ContestStatus;
+  problemCount?: number;
+  participantCount?: number;
+  isRegistered?: boolean;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ContestProblem {
@@ -207,6 +221,29 @@ export interface ContestProblem {
   problemId: string;
   problemOrder: number;
   problem?: Problem;
+}
+
+export interface ContestProblemSummary {
+  id: string;
+  title: string;
+  slug: string;
+  difficulty: ProblemDifficulty;
+  problemOrder: number;
+  statement?: string;
+  tags?: string[];
+  timeLimitMs?: number;
+  memoryLimitMb?: number;
+  sampleInput?: string;
+  sampleExpectedOutput?: string;
+}
+
+export interface ContestRegistrationResponse {
+  registered: boolean;
+  registeredAt: string;
+}
+
+export interface ContestUnregistrationResponse {
+  unregistered: boolean;
 }
 
 export interface ApiResponse<T = any> {

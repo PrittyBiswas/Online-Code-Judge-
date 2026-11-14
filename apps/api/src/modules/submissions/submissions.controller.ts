@@ -6,7 +6,7 @@ export class SubmissionsController {
   async submit(req: Request, res: Response, next: NextFunction) {
     try {
       const input = createSubmissionSchema.parse(req.body);
-      const result = await submissionsService.submitCode(req.user!.id, input);
+      const result = await submissionsService.submitCode(req.user!.id, input, req.user!.role);
       // HTTP 202 Accepted (AC-SJ-01)
       return res.status(202).json({ data: result });
     } catch (err) {
@@ -17,7 +17,7 @@ export class SubmissionsController {
   async runSample(req: Request, res: Response, next: NextFunction) {
     try {
       const input = runSampleSchema.parse(req.body);
-      const result = await submissionsService.runSample(req.user!.id, input);
+      const result = await submissionsService.runSample(req.user!.id, input, req.user!.role);
       return res.status(202).json({ data: result });
     } catch (err) {
       return next(err);

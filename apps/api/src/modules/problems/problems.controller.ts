@@ -16,7 +16,8 @@ export class ProblemsController {
   async getOne(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const problem = await problemsService.getProblem(id);
+      const contestId = typeof req.query.contestId === 'string' ? req.query.contestId : undefined;
+      const problem = await problemsService.getProblem(id, req.user, undefined, contestId);
       return res.status(200).json({ data: { problem } });
     } catch (err) {
       return next(err);
@@ -27,7 +28,7 @@ export class ProblemsController {
     try {
       const { id } = req.params;
       const input = updateProblemSchema.parse(req.body);
-      const problem = await problemsService.updateProblem(id, input);
+      const problem = await problemsService.updateProblem(id, input, req.user);
       return res.status(200).json({ data: { problem } });
     } catch (err) {
       return next(err);

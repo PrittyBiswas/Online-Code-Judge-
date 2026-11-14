@@ -56,6 +56,7 @@ function mapProblem(p: any) {
     memoryLimitMb: p.memory_limit_mb,
     sampleInput: p.sample_input,
     sampleExpectedOutput: p.sample_expected_output,
+    visibility: p.visibility ?? 'public',
     setterId: p.setter_id,
     isArchived: p.is_archived,
     createdAt: p.created_at,

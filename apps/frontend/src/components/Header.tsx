@@ -65,6 +65,13 @@ export function Header({ apiStatus }: HeaderProps) {
           </Link>
 
           <Link
+            to="/contests"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            Contests
+          </Link>
+
+          <Link
             to="/leaderboard"
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
           >

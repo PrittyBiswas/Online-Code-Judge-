@@ -10,6 +10,7 @@ export const createSubmissionSchema = z.object({
       message: `Code size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
     }),
   language: z.enum(['javascript', 'python']).default('javascript'),
+  contestId: z.string().uuid('Invalid contest ID format').optional(),
 });
 
 export const runSampleSchema = z
@@ -22,6 +23,7 @@ export const runSampleSchema = z
         message: `Code size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
       }),
     language: z.enum(['javascript', 'python']).default('javascript'),
+    contestId: z.string().uuid('Invalid contest ID format').optional(),
   })
   .strict();
 

@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
-import { ProblemDifficulty } from '@judge/shared';
+import { ProblemDifficulty, ProblemVisibility } from '@judge/shared';
 import { AppRoutes } from '../src/App';
 import * as authApi from '../src/services/authApi';
 import * as problemsApi from '../src/services/problemsApi';
@@ -39,6 +39,7 @@ function makeProblem(overrides: Partial<Problem> = {}): Problem {
     memoryLimitMb: 128,
     sampleInput: '2 7 11 15\n9',
     sampleExpectedOutput: '0 1',
+    visibility: ProblemVisibility.PUBLIC,
     setterId: '99999999-9999-4999-8999-999999999999',
     isArchived: false,
     createdAt: '2026-11-12T00:00:00.000Z',

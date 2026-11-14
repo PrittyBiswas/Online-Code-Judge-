@@ -67,6 +67,7 @@ function executeMockSql<T>(sql: string, params: any[]): QueryResult<T> {
       memory_limit_mb: params[7] || 128,
       sample_input: params[8] || '',
       sample_expected_output: params[9] || '',
+      visibility: params[11] || 'public',
       setter_id: params[10],
       is_archived: false,
       created_at: new Date(),

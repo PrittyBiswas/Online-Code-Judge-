@@ -11,6 +11,7 @@ export interface RunSampleRequest {
   problemId: string;
   code: string;
   language: SupportedLanguage;
+  contestId?: string;
 }
 
 interface RunSampleEnqueueEnvelope {
@@ -49,6 +50,7 @@ export async function runSampleCode(
       problemId: payload.problemId,
       code: payload.code,
       language: payload.language,
+      ...(payload.contestId ? { contestId: payload.contestId } : {}),
     },
     { signal }
   );
@@ -77,6 +79,7 @@ export async function submitOfficialSolution(
       problemId: payload.problemId,
       code: payload.code,
       language: payload.language,
+      ...(payload.contestId ? { contestId: payload.contestId } : {}),
     },
     { signal }
   );

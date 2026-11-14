@@ -35,6 +35,7 @@ export const submissions = pgTable('submissions', {
   id: uuid('id').defaultRandom().primaryKey(),
   problemId: uuid('problem_id').notNull(),
   userId: uuid('user_id').notNull(),
+  contestId: uuid('contest_id'),
   code: text('code').notNull(),
   language: varchar('language', { length: 20 }).notNull().default('javascript'),
   status: varchar('status', { length: 20 }).notNull().default('QUEUED'),

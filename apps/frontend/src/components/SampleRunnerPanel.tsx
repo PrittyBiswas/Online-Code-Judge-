@@ -157,7 +157,13 @@ function getPhaseRank(phase: UiRunPhase): number {
   return -1;
 }
 
-export function SampleRunnerPanel({ problem }: { problem: Problem }) {
+export function SampleRunnerPanel({
+  problem,
+  contestId,
+}: {
+  problem: Problem;
+  contestId?: string;
+}) {
   const { status: authStatus } = useAuth();
   const location = useLocation();
 
@@ -276,6 +282,7 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
           problemId: targetProblemId,
           code: currentCode,
           language,
+          contestId,
         },
         controller.signal
       );
@@ -595,6 +602,7 @@ export function SampleRunnerPanel({ problem }: { problem: Problem }) {
           problemId: targetProblemId,
           code: currentCode,
           language,
+          contestId,
         },
         controller.signal
       );

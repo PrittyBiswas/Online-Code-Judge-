@@ -5,6 +5,8 @@ import {
   UpdateProblemInput,
   Problem,
   ProblemDifficulty,
+  ProblemVisibility,
+  Role,
   REDIS_KEYS,
   ERROR_CODES,
   createProblemSchema,
@@ -12,12 +14,161 @@ import {
   updateProblemSchema,
 } from '@judge/shared';
 import { db } from '../../db/index.js';
-import { problems, submissions, testCases, type ProblemRecord } from '../../db/schema.js';
+import {
+  problems,
+  submissions,
+  testCases,
+  contests,
+  contestProblems,
+  type ProblemRecord,
+} from '../../db/schema.js';
 import { minioService } from '../../config/minio.js';
 import { redisClient, isRedisHealthy } from '../../config/redis.js';
 import { AppError } from '../../utils/app-error.js';
 import { isUuid, mapDatabaseError } from '../../utils/db-error.js';
 import { logger } from '../../utils/logger.js';
+
+export interface ProblemAccessCheckInput {
+  id: string;
+  visibility: ProblemVisibility | string;
+  setterId?: string | null;
+  isArchived: boolean;
+}
+
+/**
+ * Centralized fail-closed authorization assertion for problem access.
+ *
+ * Rules:
+ * 1. If problem is archived -> 404 NOT_FOUND.
+ * 2. Fail closed on missing, null, or invalid visibility values -> 500 INTERNAL_ERROR.
+ * 3. If visibility === 'public' -> unconditionally accessible to anyone.
+ * 4. If visibility === 'contest_only':
+ *    - Allowed if user is ADMIN.
+ *    - Allowed if user is the problem's setter.
+ *    - If a specific contestId is provided:
+ *      * Validates that problem belongs to this contest in database.
+ *      * Allowed if user is contest creator.
+ *      * Allowed if currentTime >= contest.startTime.
+ *      * Otherwise -> 403 CONTEST_NOT_STARTED.
+ *    - If NO contestId is provided:
+ *      * Allowed if user is the creator of ANY associated contest.
+ *      * Otherwise -> 403 CONTEST_NOT_STARTED (requires contest context; never globally released).
+ */
+export async function assertProblemAccess(
+  problem: ProblemAccessCheckInput,
+  currentUser?: { id: string; role: Role },
+  currentTime: Date = new Date(),
+  contestId?: string
+): Promise<void> {
+  // 1. Archived problems continue returning intended 404
+  if (problem.isArchived) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
+  }
+
+  // 2. Fail-closed: validate visibility
+  if (!problem.visibility || typeof problem.visibility !== 'string') {
+    throw new AppError(ERROR_CODES.INTERNAL_ERROR, 'Invalid problem visibility configuration', 500);
+  }
+
+  if (
+    problem.visibility !== ProblemVisibility.PUBLIC &&
+    problem.visibility !== ProblemVisibility.CONTEST_ONLY
+  ) {
+    throw new AppError(ERROR_CODES.INTERNAL_ERROR, 'Invalid problem visibility configuration', 500);
+  }
+
+  // 3. Unrestricted access ONLY when visibility is exactly 'public'
+  if (problem.visibility === ProblemVisibility.PUBLIC) {
+    return;
+  }
+
+  // 4. Contest-only visibility handling
+  // Administrator has full access
+  if (currentUser?.role === Role.ADMIN) {
+    return;
+  }
+
+  // Problem setter has full authoring access
+  if (currentUser && problem.setterId && currentUser.id === problem.setterId) {
+    return;
+  }
+
+  // If a contest context is supplied, validate it specifically
+  if (contestId) {
+    if (!isUuid(contestId)) {
+      throw new AppError(
+        ERROR_CODES.CONTEST_NOT_STARTED,
+        'Contest problem is not accessible before contest start',
+        403
+      );
+    }
+
+    const linkedRows = await db
+      .select({
+        contestId: contests.id,
+        startTime: contests.startTime,
+        endTime: contests.endTime,
+        createdBy: contests.createdBy,
+      })
+      .from(contestProblems)
+      .innerJoin(contests, eq(contestProblems.contestId, contests.id))
+      .where(
+        and(eq(contestProblems.problemId, problem.id), eq(contestProblems.contestId, contestId))
+      );
+
+    const linkedContest = linkedRows[0];
+    if (!linkedContest) {
+      // Problem does not belong to this contest
+      throw new AppError(
+        ERROR_CODES.CONTEST_NOT_STARTED,
+        'Contest problem is not accessible before contest start',
+        403
+      );
+    }
+
+    // Contest creator has access
+    if (currentUser && currentUser.id === linkedContest.createdBy) {
+      return;
+    }
+
+    // Contest must be started
+    if (currentTime >= linkedContest.startTime) {
+      return;
+    }
+
+    throw new AppError(
+      ERROR_CODES.CONTEST_NOT_STARTED,
+      'Contest problem is not accessible before contest start',
+      403
+    );
+  }
+
+  // No contest context supplied.
+  // Query all contests associated with this problem to allow contest creator authoring permissions
+  const linkedContests = await db
+    .select({
+      contestId: contests.id,
+      startTime: contests.startTime,
+      endTime: contests.endTime,
+      createdBy: contests.createdBy,
+    })
+    .from(contestProblems)
+    .innerJoin(contests, eq(contestProblems.contestId, contests.id))
+    .where(eq(contestProblems.problemId, problem.id));
+
+  // If user created ANY of the linked contests, grant access
+  if (currentUser && linkedContests.some((c) => c.createdBy === currentUser.id)) {
+    return;
+  }
+
+  // Regular users accessing a contest_only problem without a valid contest context
+  // must NOT get global access, even if one linked contest has started.
+  throw new AppError(
+    ERROR_CODES.CONTEST_NOT_STARTED,
+    'Contest problem is not accessible without an active contest context',
+    403
+  );
+}
 
 type CreateProblemParams = z.input<typeof createProblemSchema>;
 type QueryProblemsParams = z.input<typeof queryProblemsSchema>;
@@ -126,6 +277,7 @@ export class ProblemsService {
             memoryLimitMb: input.memoryLimitMb,
             sampleInput: input.sampleInput,
             sampleExpectedOutput: input.sampleExpectedOutput,
+            visibility: input.visibility || ProblemVisibility.PUBLIC,
             setterId,
             isArchived: false,
           })
@@ -151,16 +303,26 @@ export class ProblemsService {
     }
   }
 
-  async getProblem(idOrSlug: string): Promise<Problem> {
+  async getProblem(
+    idOrSlug: string,
+    currentUser?: { id: string; role: Role },
+    currentTime: Date = new Date(),
+    contestId?: string
+  ): Promise<Problem> {
     const cacheKey = REDIS_KEYS.PROBLEM_CACHE(idOrSlug);
 
-    // 1. Cache-aside read (Redis)
+    // 1. Cache-aside read (Redis) - ONLY serve public problems directly from unauthenticated cache
     if (isRedisHealthy()) {
       try {
         const cached = await redisClient.get(cacheKey);
         if (cached) {
           const parsed = JSON.parse(cached) as Partial<Problem>;
-          if (parsed && typeof parsed.id === 'string' && typeof parsed.title === 'string') {
+          if (
+            parsed &&
+            typeof parsed.id === 'string' &&
+            typeof parsed.title === 'string' &&
+            parsed.visibility === ProblemVisibility.PUBLIC
+          ) {
             return parsed as Problem;
           }
           await redisClient.del(cacheKey);
@@ -195,11 +357,15 @@ export class ProblemsService {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
     }
 
+    // Centralized access authorization check
+    await assertProblemAccess(problem, currentUser, currentTime, contestId);
+
     // Hidden tests, MinIO keys, and credentials never appear in problem API responses.
     const dto = this.mapToDto(problem);
 
-    // 3. Populate cache with TTL
-    if (isRedisHealthy()) {
+    // 3. Populate cache with TTL (ONLY public problems are cached in public Redis key)
+    const isPublic = problem.visibility === ProblemVisibility.PUBLIC;
+    if (isRedisHealthy() && isPublic) {
       try {
         await redisClient.set(cacheKey, JSON.stringify(dto), 'EX', PROBLEM_DETAIL_TTL_SECONDS);
       } catch (err) {
@@ -213,9 +379,28 @@ export class ProblemsService {
     return dto;
   }
 
-  async updateProblem(id: string, rawInput: UpdateProblemInput): Promise<Problem> {
+  async updateProblem(
+    id: string,
+    rawInput: UpdateProblemInput,
+    currentUser?: { id: string; role: Role }
+  ): Promise<Problem> {
     if (!isUuid(id)) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
+    }
+
+    if (currentUser && currentUser.role !== Role.ADMIN) {
+      const [existing] = await db
+        .select({ setterId: problems.setterId })
+        .from(problems)
+        .where(and(eq(problems.id, id), eq(problems.isArchived, false)))
+        .limit(1);
+      if (existing && existing.setterId !== currentUser.id) {
+        throw new AppError(
+          ERROR_CODES.FORBIDDEN,
+          'You do not have permission to update this problem',
+          403
+        );
+      }
     }
 
     const input = updateProblemSchema.parse(rawInput);
@@ -233,6 +418,7 @@ export class ProblemsService {
     if (input.sampleExpectedOutput !== undefined) {
       patch.sampleExpectedOutput = input.sampleExpectedOutput;
     }
+    if (input.visibility !== undefined) patch.visibility = input.visibility;
 
     let updated: ProblemRecord | undefined;
     try {
@@ -375,7 +561,11 @@ export class ProblemsService {
     }
 
     // 2. Build parameterized PostgreSQL WHERE conditions (strict AND semantics)
-    const conditions: SQL[] = [eq(problems.isArchived, false)];
+    // Only public problems appear in the public catalog listing/search.
+    const conditions: SQL[] = [
+      eq(problems.isArchived, false),
+      eq(problems.visibility, ProblemVisibility.PUBLIC),
+    ];
 
     if (params.difficulty) {
       conditions.push(eq(problems.difficulty, params.difficulty));
@@ -556,6 +746,7 @@ export class ProblemsService {
       memoryLimitMb: p.memoryLimitMb,
       sampleInput: p.sampleInput,
       sampleExpectedOutput: p.sampleExpectedOutput,
+      visibility: (p.visibility as ProblemVisibility) || ProblemVisibility.PUBLIC,
       setterId: p.setterId,
       isArchived: p.isArchived,
       createdAt: p.createdAt.toISOString(),

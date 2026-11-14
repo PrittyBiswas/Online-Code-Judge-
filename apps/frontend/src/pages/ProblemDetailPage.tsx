@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { AlertCircle, ArrowLeft, Clock, Cpu, FileQuestion, Loader2, Tag } from 'lucide-react';
@@ -9,6 +9,8 @@ import { SampleRunnerPanel } from '../components/SampleRunnerPanel';
 
 export function ProblemDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const contestId = searchParams.get('contestId') || undefined;
   const problemKey = id ?? '';
 
   const {
@@ -18,8 +20,8 @@ export function ProblemDetailPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['problem', problemKey],
-    queryFn: ({ signal }) => fetchProblemById(problemKey, signal),
+    queryKey: ['problem', problemKey, contestId],
+    queryFn: ({ signal }) => fetchProblemById(problemKey, signal, contestId),
     enabled: Boolean(problemKey),
   });
 
@@ -28,13 +30,23 @@ export function ProblemDetailPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/problems"
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-indigo-300 transition hover:bg-slate-800 hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Problems
-        </Link>
+        {contestId ? (
+          <Link
+            to={`/contests/${contestId}`}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-indigo-300 transition hover:bg-slate-800 hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Contest
+          </Link>
+        ) : (
+          <Link
+            to="/problems"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-indigo-300 transition hover:bg-slate-800 hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Problems
+          </Link>
+        )}
       </div>
 
       {isLoading ? (
@@ -155,7 +167,9 @@ export function ProblemDetailPage() {
         </article>
       )}
 
-      {!isLoading && !isError && problem && <SampleRunnerPanel problem={problem} />}
+      {!isLoading && !isError && problem && (
+        <SampleRunnerPanel problem={problem} contestId={contestId} />
+      )}
     </div>
   );
 }

@@ -44,10 +44,17 @@ export async function fetchProblems(
   return response.data.data;
 }
 
-export async function fetchProblemById(idOrSlug: string, signal?: AbortSignal): Promise<Problem> {
+export async function fetchProblemById(
+  idOrSlug: string,
+  signal?: AbortSignal,
+  contestId?: string
+): Promise<Problem> {
   const response = await apiClient.get<ProblemDetailEnvelope>(
     `/api/problems/${encodeURIComponent(idOrSlug)}`,
-    { signal }
+    {
+      params: contestId ? { contestId } : undefined,
+      signal,
+    }
   );
   return response.data.data.problem;
 }

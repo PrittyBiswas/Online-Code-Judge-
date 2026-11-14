@@ -8,6 +8,7 @@ import {
   Submission,
   SubmissionStatus,
   Verdict,
+  Role,
   ERROR_CODES,
   RATE_LIMITS,
   REDIS_KEYS,
@@ -18,11 +19,18 @@ import {
   SupportedLanguage,
 } from '@judge/shared';
 import { db } from '../../db/index.js';
-import { problems, submissions, type SubmissionRecord } from '../../db/schema.js';
+import {
+  problems,
+  submissions,
+  contests,
+  contestProblems,
+  type SubmissionRecord,
+} from '../../db/schema.js';
 import { judgeQueue, sampleRunQueue } from '../../config/queue.js';
 import { redisClient, isRedisHealthy } from '../../config/redis.js';
 import { AppError } from '../../utils/app-error.js';
 import { isUuid, mapDatabaseError } from '../../utils/db-error.js';
+import { assertProblemAccess } from '../problems/problems.service.js';
 
 type QuerySubmissionsParams = z.input<typeof querySubmissionsSchema>;
 
@@ -38,7 +46,9 @@ export interface UpdateSubmissionResultInput {
 export class SubmissionsService {
   async submitCode(
     userId: string,
-    input: CreateSubmissionInput
+    input: CreateSubmissionInput,
+    userRole?: Role,
+    currentTime: Date = new Date()
   ): Promise<{ id: string; status: SubmissionStatus }> {
     if (!isUuid(userId)) {
       throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Invalid user reference', 400);
@@ -57,14 +67,27 @@ export class SubmissionsService {
           timeLimitMs: problems.timeLimitMs,
           memoryLimitMb: problems.memoryLimitMb,
           isArchived: problems.isArchived,
+          visibility: problems.visibility,
+          setterId: problems.setterId,
         })
         .from(problems)
         .where(eq(problems.id, input.problemId))
         .limit(1);
 
-      if (!problem || problem.isArchived) {
+      if (!problem) {
         throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
       }
+
+      if (input.contestId) {
+        await this.validateContestContext(input.contestId, input.problemId, currentTime);
+      }
+
+      await assertProblemAccess(
+        problem,
+        { id: userId, role: userRole as Role },
+        currentTime,
+        input.contestId
+      );
 
       problemLimits = {
         timeLimitMs: problem.timeLimitMs,
@@ -76,6 +99,7 @@ export class SubmissionsService {
         .values({
           problemId: input.problemId,
           userId,
+          contestId: input.contestId ?? null,
           code: input.code,
           language: input.language,
           status: SubmissionStatus.QUEUED,
@@ -173,7 +197,9 @@ export class SubmissionsService {
 
   async runSample(
     userId: string,
-    input: RunSampleInput
+    input: RunSampleInput,
+    userRole?: Role,
+    currentTime: Date = new Date()
   ): Promise<{ runId: string; status: SampleRunStatus }> {
     if (!isUuid(userId)) {
       throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Invalid user reference', 400);
@@ -184,22 +210,28 @@ export class SubmissionsService {
 
     let problem:
       | {
+          id: string;
           sampleInput: string;
           sampleExpectedOutput: string;
           timeLimitMs: number;
           memoryLimitMb: number;
           isArchived: boolean;
+          visibility: string;
+          setterId: string;
         }
       | undefined;
 
     try {
       const rows = await db
         .select({
+          id: problems.id,
           sampleInput: problems.sampleInput,
           sampleExpectedOutput: problems.sampleExpectedOutput,
           timeLimitMs: problems.timeLimitMs,
           memoryLimitMb: problems.memoryLimitMb,
           isArchived: problems.isArchived,
+          visibility: problems.visibility,
+          setterId: problems.setterId,
         })
         .from(problems)
         .where(eq(problems.id, input.problemId))
@@ -209,9 +241,20 @@ export class SubmissionsService {
       throw mapDatabaseError(err);
     }
 
-    if (!problem || problem.isArchived) {
+    if (!problem) {
       throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
     }
+
+    if (input.contestId) {
+      await this.validateContestContext(input.contestId, input.problemId, currentTime);
+    }
+
+    await assertProblemAccess(
+      problem,
+      { id: userId, role: userRole as Role },
+      currentTime,
+      input.contestId
+    );
 
     if (!sampleRunQueue || !isRedisHealthy()) {
       throw new AppError(
@@ -442,11 +485,64 @@ export class SubmissionsService {
     }
   }
 
+  private async validateContestContext(
+    contestId: string,
+    problemId: string,
+    currentTime: Date
+  ): Promise<void> {
+    if (!isUuid(contestId)) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Contest not found', 404);
+    }
+
+    const [contest] = await db
+      .select({
+        id: contests.id,
+        startTime: contests.startTime,
+        endTime: contests.endTime,
+      })
+      .from(contests)
+      .where(eq(contests.id, contestId))
+      .limit(1);
+
+    if (!contest) {
+      throw new AppError(ERROR_CODES.NOT_FOUND, 'Contest not found', 404);
+    }
+
+    const [association] = await db
+      .select({ problemId: contestProblems.problemId })
+      .from(contestProblems)
+      .where(
+        and(eq(contestProblems.contestId, contestId), eq(contestProblems.problemId, problemId))
+      )
+      .limit(1);
+
+    if (!association) {
+      throw new AppError(
+        ERROR_CODES.VALIDATION_ERROR,
+        'Problem is not associated with this contest',
+        400
+      );
+    }
+
+    if (currentTime < contest.startTime) {
+      throw new AppError(
+        ERROR_CODES.CONTEST_NOT_STARTED,
+        'Cannot submit before contest start',
+        403
+      );
+    }
+
+    if (currentTime >= contest.endTime) {
+      throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Cannot submit after contest end', 400);
+    }
+  }
+
   private mapToDto(s: SubmissionRecord): Submission {
     return {
       id: s.id,
       problemId: s.problemId,
       userId: s.userId,
+      contestId: s.contestId ?? undefined,
       code: s.code,
       language: s.language as SupportedLanguage,
       status: s.status as SubmissionStatus,

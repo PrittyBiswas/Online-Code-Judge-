@@ -22,7 +22,15 @@ async function verifyDatabase() {
     ORDER BY tablename;
   `);
   const tableNames = tablesRes.rows.map((r) => String((r as { tablename: string }).tablename));
-  for (const required of ['users', 'problems', 'test_cases', 'submissions']) {
+  for (const required of [
+    'users',
+    'problems',
+    'test_cases',
+    'submissions',
+    'contests',
+    'contest_problems',
+    'contest_participants',
+  ]) {
     if (!tableNames.includes(required)) {
       throw new Error(`Expected table "${required}" was not found in schema "public".`);
     }

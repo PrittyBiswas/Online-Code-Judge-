@@ -3,6 +3,8 @@ import { MainLayout } from './layouts/MainLayout';
 import { HomePage } from './pages/HomePage';
 import { ProblemsPage } from './pages/ProblemsPage';
 import { ProblemDetailPage } from './pages/ProblemDetailPage';
+import { ContestsPage } from './pages/ContestsPage';
+import { ContestDetailPage } from './pages/ContestDetailPage';
 import { LeaderboardPage } from './pages/LeaderboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -21,6 +23,8 @@ export function AppRoutes() {
           <Route path="/" element={<HomePage apiStatus={status} healthData={data} />} />
           <Route path="/problems" element={<ProblemsPage />} />
           <Route path="/problems/:id" element={<ProblemDetailPage />} />
+          <Route path="/contests" element={<ContestsPage />} />
+          <Route path="/contests/:id" element={<ContestDetailPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

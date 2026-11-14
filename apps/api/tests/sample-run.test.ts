@@ -73,6 +73,8 @@ vi.mock('../src/db/index.js', () => ({
                     sampleExpectedOutput: 'TRUSTED_SAMPLE_OUTPUT',
                     timeLimitMs: 1500,
                     memoryLimitMb: 128,
+                    visibility: 'public',
+                    setterId: USER_A,
                     isArchived: false,
                   },
                 ];
