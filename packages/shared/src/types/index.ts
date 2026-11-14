@@ -108,6 +108,7 @@ export interface SubmissionJobData {
   language: SupportedLanguage;
   timeLimitMs: number;
   memoryLimitMb: number;
+  contestId?: string;
 }
 
 export type SampleRunStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -157,6 +158,15 @@ export interface SubmissionEvent {
   failedTestIndex?: number;
   executionTimeMs?: number;
   memoryUsedKb?: number;
+  timestamp: number;
+}
+
+export interface ContestUpdateEvent {
+  contestId: string;
+  submissionId: string;
+  problemId: string;
+  userId: string;
+  verdict: Verdict;
   timestamp: number;
 }
 

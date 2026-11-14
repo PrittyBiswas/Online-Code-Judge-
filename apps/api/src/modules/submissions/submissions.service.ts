@@ -122,6 +122,7 @@ export class SubmissionsService {
       language: input.language,
       timeLimitMs: problemLimits.timeLimitMs,
       memoryLimitMb: problemLimits.memoryLimitMb,
+      contestId: input.contestId ?? undefined,
     };
 
     // Push job to BullMQ queue (Card 1 / AC-SJ-01) with DB compensation if enqueue fails

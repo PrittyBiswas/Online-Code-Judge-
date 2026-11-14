@@ -14,6 +14,9 @@ router.get('/:id/problems', optionalAuth, (req, res, next) =>
 router.get('/:id/leaderboard', optionalAuth, (req, res, next) =>
   contestsController.getLeaderboard(req, res, next)
 );
+router.get('/:id/leaderboard/live', optionalAuth, (req, res, next) =>
+  contestsController.getLiveLeaderboard(req, res, next)
+);
 
 router.post('/', requireAuth, requireRole(Role.ADMIN), (req, res, next) =>
   contestsController.create(req, res, next)

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { contestsService } from './contests.service.js';
 import { createContestSchema } from '@judge/shared';
+import { contestSseManager } from '../../events/contest-sse.js';
 
 export class ContestsController {
   async create(req: Request, res: Response, next: NextFunction) {
@@ -67,6 +68,14 @@ export class ContestsController {
       const { id } = req.params;
       const leaderboard = await contestsService.getContestLeaderboard(id, req.user?.role);
       return res.status(200).json({ data: { leaderboard } });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async getLiveLeaderboard(req: Request, res: Response, next: NextFunction) {
+    try {
+      await contestSseManager.handleConnection(req, res, next);
     } catch (err) {
       return next(err);
     }

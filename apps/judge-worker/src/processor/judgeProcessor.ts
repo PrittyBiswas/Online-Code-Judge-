@@ -497,6 +497,7 @@ export async function processSubmissionJob(
         submissionId,
         problemId: problem.id,
         userId: claimed.userId,
+        contestId: claimed.contestId ?? jobData.contestId ?? undefined,
         evaluation,
         dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
           repository.saveFinalVerdict({

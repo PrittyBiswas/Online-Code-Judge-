@@ -91,6 +91,10 @@ export async function getContestLeaderboard(
   return response.data.data.leaderboard;
 }
 
+export function getContestLeaderboardLiveUrl(contestId: string): string {
+  return `/api/contests/${encodeURIComponent(contestId)}/leaderboard/live`;
+}
+
 export async function createContest(
   input: CreateContestInput,
   signal?: AbortSignal

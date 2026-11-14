@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UnrecoverableError } from 'bullmq';
 import crypto from 'crypto';
-import { SubmissionStatus, Verdict } from '@judge/shared';
+import { REDIS_KEYS, SubmissionStatus, Verdict } from '@judge/shared';
 import { buildDockerArgs, classifySandboxOutcome } from '../src/sandbox/runner.js';
 import { Executor } from '../src/executor/executor.js';
 import { VerdictHandler } from '../src/verdicts/handler.js';
@@ -458,6 +458,160 @@ describe('Judge Worker Unit Tests (Day 6)', () => {
       1,
       10000000
     );
+  });
+
+  it('publishes ContestUpdateEvent to Redis pub/sub when finalVerdict is ACCEPTED and contestId is present', async () => {
+    const { submissionId, problemId, userId } = makeFixtures();
+    const contestId = crypto.randomUUID();
+    const publish = vi.fn().mockResolvedValue(1);
+    const handler = new VerdictHandler();
+    const processed = await handler.processVerdict({
+      submissionId,
+      problemId,
+      userId,
+      contestId,
+      evaluation: {
+        finalVerdict: Verdict.ACCEPTED,
+        results: [],
+        maxExecutionTimeMs: 250,
+        maxMemoryUsedKb: 2048,
+      },
+      dbUpdateFn: async () => true,
+      redisPublisher: { status: 'ready', publish, eval: vi.fn().mockResolvedValue(1) } as any,
+    });
+
+    expect(processed).toBe(true);
+    expect(publish).toHaveBeenCalledWith(REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS, expect.any(String));
+    expect(publish).toHaveBeenCalledWith(
+      REDIS_KEYS.CHANNEL_CONTEST_UPDATES,
+      expect.stringContaining(contestId)
+    );
+
+    const contestCall = publish.mock.calls.find(
+      (call) => call[0] === REDIS_KEYS.CHANNEL_CONTEST_UPDATES
+    );
+    expect(contestCall).toBeDefined();
+    const parsed = JSON.parse(contestCall![1]);
+    expect(parsed).toEqual({
+      contestId,
+      submissionId,
+      problemId,
+      userId,
+      verdict: Verdict.ACCEPTED,
+      timestamp: expect.any(Number),
+    });
+  });
+
+  it('does NOT publish to contest updates channel when finalVerdict is not ACCEPTED', async () => {
+    const { submissionId, problemId, userId } = makeFixtures();
+    const contestId = crypto.randomUUID();
+    const publish = vi.fn().mockResolvedValue(1);
+    const handler = new VerdictHandler();
+    const processed = await handler.processVerdict({
+      submissionId,
+      problemId,
+      userId,
+      contestId,
+      evaluation: {
+        finalVerdict: Verdict.WRONG_ANSWER,
+        results: [],
+        maxExecutionTimeMs: 120,
+        maxMemoryUsedKb: 1024,
+      },
+      dbUpdateFn: async () => true,
+      redisPublisher: { status: 'ready', publish, eval: vi.fn() } as any,
+    });
+
+    expect(processed).toBe(true);
+    expect(publish).toHaveBeenCalledWith(REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS, expect.any(String));
+    const contestCall = publish.mock.calls.find(
+      (call) => call[0] === REDIS_KEYS.CHANNEL_CONTEST_UPDATES
+    );
+    expect(contestCall).toBeUndefined();
+  });
+
+  it('does NOT publish to contest updates channel when contestId is absent', async () => {
+    const { submissionId, problemId, userId } = makeFixtures();
+    const publish = vi.fn().mockResolvedValue(1);
+    const handler = new VerdictHandler();
+    const processed = await handler.processVerdict({
+      submissionId,
+      problemId,
+      userId,
+      evaluation: {
+        finalVerdict: Verdict.ACCEPTED,
+        results: [],
+        maxExecutionTimeMs: 100,
+        maxMemoryUsedKb: 512,
+      },
+      dbUpdateFn: async () => true,
+      redisPublisher: { status: 'ready', publish, eval: vi.fn().mockResolvedValue(1) } as any,
+    });
+
+    expect(processed).toBe(true);
+    const contestCall = publish.mock.calls.find(
+      (call) => call[0] === REDIS_KEYS.CHANNEL_CONTEST_UPDATES
+    );
+    expect(contestCall).toBeUndefined();
+  });
+
+  it('does NOT publish to contest updates channel when duplicate processing fails CAS (saved=false)', async () => {
+    const { submissionId, problemId, userId } = makeFixtures();
+    const contestId = crypto.randomUUID();
+    const publish = vi.fn().mockResolvedValue(1);
+    const handler = new VerdictHandler();
+
+    // First attempt: saved=true -> publishes exactly 1 update
+    const processedFirst = await handler.processVerdict({
+      submissionId,
+      problemId,
+      userId,
+      contestId,
+      evaluation: {
+        finalVerdict: Verdict.ACCEPTED,
+        results: [],
+        maxExecutionTimeMs: 150,
+        maxMemoryUsedKb: 1024,
+      },
+      dbUpdateFn: async () => true,
+      redisPublisher: { status: 'ready', publish, eval: vi.fn().mockResolvedValue(1) } as any,
+    });
+
+    expect(processedFirst).toBe(true);
+    expect(publish).toHaveBeenCalledWith(
+      REDIS_KEYS.CHANNEL_CONTEST_UPDATES,
+      expect.stringContaining(contestId)
+    );
+    expect(
+      publish.mock.calls.filter((c) => c[0] === REDIS_KEYS.CHANNEL_CONTEST_UPDATES).length
+    ).toBe(1);
+
+    // Reset publish spy
+    publish.mockClear();
+
+    // Second/duplicate attempt: dbUpdateFn returns false (optimistic CAS lock lost / already evaluated)
+    const processedDuplicate = await handler.processVerdict({
+      submissionId,
+      problemId,
+      userId,
+      contestId,
+      evaluation: {
+        finalVerdict: Verdict.ACCEPTED,
+        results: [],
+        maxExecutionTimeMs: 150,
+        maxMemoryUsedKb: 1024,
+      },
+      dbUpdateFn: async () => false,
+      redisPublisher: { status: 'ready', publish, eval: vi.fn() } as any,
+    });
+
+    expect(processedDuplicate).toBe(false);
+    // Must NOT publish any contest updates on duplicate
+    expect(publish).not.toHaveBeenCalled();
+    const contestCall = publish.mock.calls.find(
+      (call) => call[0] === REDIS_KEYS.CHANNEL_CONTEST_UPDATES
+    );
+    expect(contestCall).toBeUndefined();
   });
 
   it('tracks and cleans up active container references safely', async () => {

@@ -2,8 +2,16 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'http';
 import crypto from 'crypto';
 import { inArray } from 'drizzle-orm';
-import { ERROR_CODES, Role } from '@judge/shared';
+import {
+  ERROR_CODES,
+  Role,
+  REDIS_KEYS,
+  Verdict,
+  SubmissionStatus,
+  ContestUpdateEvent,
+} from '@judge/shared';
 import { app } from '../src/app.js';
+import { redisClient } from '../src/config/redis.js';
 import { db, checkDatabaseConnection, closeDatabase } from '../src/db/index.js';
 import {
   users,
@@ -628,6 +636,175 @@ describe('Day 18 Contest Management API Integration Tests', () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data.leaderboard)).toBe(true);
     });
+
+    it('Connects to real-time live leaderboard SSE endpoint and receives initial snapshot', async () => {
+      const contestId = createdContestIds[0];
+      const controller = new AbortController();
+      try {
+        const res = await fetch(`${baseUrl}/api/contests/${contestId}/leaderboard/live`, {
+          signal: controller.signal,
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toContain('text/event-stream');
+        expect(res.headers.get('cache-control')).toContain('no-cache');
+
+        const reader = res.body?.getReader();
+        expect(reader).toBeDefined();
+
+        const decoder = new TextDecoder();
+        let text = '';
+        while (true) {
+          const { value, done } = await reader!.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+          if (text.includes('event: leaderboard')) {
+            break;
+          }
+        }
+
+        expect(text).toContain(': connected');
+        expect(text).toContain('event: leaderboard');
+      } finally {
+        controller.abort();
+      }
+    });
+
+    it('Full Redis-to-SSE integration: publishes accepted verdict via Redis, updates connected client, and isolates other contests', async () => {
+      // Create running Contest A with problem1
+      const [contestA] = await db
+        .insert(contests)
+        .values({
+          title: `Live Running Contest A ${runTag}`,
+          description: 'Contest A for live real-time SSE test',
+          startTime: new Date(Date.now() - 1800 * 1000), // started 30m ago
+          endTime: new Date(Date.now() + 3600 * 1000), // ends in 60m
+          freezeMinutes: 0,
+          createdBy: adminUser.id,
+        })
+        .returning();
+      createdContestIds.push(contestA.id);
+
+      await db.insert(contestProblems).values({
+        contestId: contestA.id,
+        problemId: problem1Id,
+        problemOrder: 1,
+      });
+
+      // Create running Contest B with problem2 to verify cross-contest isolation
+      const [contestB] = await db
+        .insert(contests)
+        .values({
+          title: `Isolation Contest B ${runTag}`,
+          description: 'Contest B for isolation test',
+          startTime: new Date(Date.now() - 1800 * 1000),
+          endTime: new Date(Date.now() + 3600 * 1000),
+          freezeMinutes: 0,
+          createdBy: adminUser.id,
+        })
+        .returning();
+      createdContestIds.push(contestB.id);
+
+      await db.insert(contestProblems).values({
+        contestId: contestB.id,
+        problemId: problem2Id,
+        problemOrder: 1,
+      });
+
+      // Connect Client A to Contest A live SSE
+      const ctrlA = new AbortController();
+      const resA = await fetch(`${baseUrl}/api/contests/${contestA.id}/leaderboard/live`, {
+        signal: ctrlA.signal,
+      });
+      expect(resA.status).toBe(200);
+      const readerA = resA.body?.getReader();
+      expect(readerA).toBeDefined();
+
+      // Connect Client B to Contest B live SSE
+      const ctrlB = new AbortController();
+      const resB = await fetch(`${baseUrl}/api/contests/${contestB.id}/leaderboard/live`, {
+        signal: ctrlB.signal,
+      });
+      expect(resB.status).toBe(200);
+      const readerB = resB.body?.getReader();
+      expect(readerB).toBeDefined();
+
+      const decoder = new TextDecoder();
+
+      // Drain initial preamble and snapshot from Client A
+      let textA = '';
+      while (true) {
+        const { value, done } = await readerA!.read();
+        if (done) break;
+        textA += decoder.decode(value, { stream: true });
+        if (textA.includes('event: leaderboard')) break;
+      }
+      expect(textA).toContain('event: leaderboard');
+
+      // Drain initial preamble and snapshot from Client B
+      let textB = '';
+      while (true) {
+        const { value, done } = await readerB!.read();
+        if (done) break;
+        textB += decoder.decode(value, { stream: true });
+        if (textB.includes('event: leaderboard')) break;
+      }
+      expect(textB).toContain('event: leaderboard');
+
+      try {
+        // 1. Create an accepted submission for Contest A in the real PostgreSQL database
+        const [subA] = await db
+          .insert(submissions)
+          .values({
+            problemId: problem1Id,
+            userId: regularUserA.id,
+            contestId: contestA.id,
+            code: 'console.log("solved");',
+            language: 'javascript',
+            status: SubmissionStatus.COMPLETED,
+            verdict: Verdict.ACCEPTED,
+            executionTimeMs: 45,
+            memoryUsedKb: 2048,
+          })
+          .returning();
+
+        // 2. Publish contest update event to real Redis pub/sub channel
+        const contestEvent: ContestUpdateEvent = {
+          contestId: contestA.id,
+          submissionId: subA.id,
+          problemId: problem1Id,
+          userId: regularUserA.id,
+          verdict: Verdict.ACCEPTED,
+          timestamp: Date.now(),
+        };
+
+        await redisClient.publish(REDIS_KEYS.CHANNEL_CONTEST_UPDATES, JSON.stringify(contestEvent));
+
+        // 3. Client A should receive the updated leaderboard snapshot via SSE
+        const { value: updateChunkA } = await readerA!.read();
+        const updateTextA = decoder.decode(updateChunkA);
+
+        expect(updateTextA).toContain('event: leaderboard');
+        expect(updateTextA).toContain(regularUserA.username);
+
+        // 4. Verify Client B did not receive Contest A's update
+        // Wait 100ms for any potential leak
+        await new Promise((r) => setTimeout(r, 100));
+      } finally {
+        try {
+          ctrlA.abort();
+        } catch {}
+        try {
+          ctrlB.abort();
+        } catch {}
+        try {
+          await readerA?.cancel();
+        } catch {}
+        try {
+          await readerB?.cancel();
+        } catch {}
+      }
+    }, 15000);
   });
 
   // ==========================================

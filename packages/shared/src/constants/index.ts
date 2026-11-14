@@ -55,6 +55,7 @@ export const REDIS_KEYS = {
   GLOBAL_LEADERBOARD: 'judge:leaderboard:global',
   CONTEST_LEADERBOARD: (contestId: string) => `judge:leaderboard:contest:${contestId}`,
   CHANNEL_SUBMISSION_EVENTS: 'judge:pubsub:submissions',
+  CHANNEL_CONTEST_UPDATES: 'judge:pubsub:contest-updates',
   CRON_LOCK: (jobName: string) => `judge:lock:cron:${jobName}`,
 };
 

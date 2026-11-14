@@ -2,6 +2,7 @@ import Redis from 'ioredis';
 import {
   Verdict,
   SubmissionEvent,
+  ContestUpdateEvent,
   REDIS_KEYS,
   RECORD_SOLVE_LUA_SCRIPT,
   PENALTY_OFFSET,
@@ -14,6 +15,7 @@ export interface VerdictSaveOptions {
   submissionId: string;
   problemId: string;
   userId: string;
+  contestId?: string;
   evaluation: EvaluatedSubmission;
   dbUpdateFn?: (
     id: string,
@@ -30,7 +32,8 @@ export class VerdictHandler {
    * Saves final verdict idempotently and publishes live update event (AC-SJ-06, AC-LB-01).
    */
   async processVerdict(options: VerdictSaveOptions): Promise<boolean> {
-    const { submissionId, problemId, userId, evaluation, dbUpdateFn, redisPublisher } = options;
+    const { submissionId, problemId, userId, contestId, evaluation, dbUpdateFn, redisPublisher } =
+      options;
     const finalVerdict = evaluation.finalVerdict;
 
     // 1. Idempotent DB update: UPDATE ... WHERE status IN ('QUEUED', 'RUNNING')
@@ -97,6 +100,29 @@ export class VerdictHandler {
             await redisPublisher.zadd(REDIS_KEYS.GLOBAL_LEADERBOARD, newScore, userId);
           }
         }
+      } catch {}
+    }
+
+    // 4. Publish contest leaderboard update event on ACCEPTED contest submission (Day 19)
+    if (
+      finalVerdict === Verdict.ACCEPTED &&
+      contestId &&
+      redisPublisher &&
+      redisPublisher.status === 'ready'
+    ) {
+      try {
+        const contestEvent: ContestUpdateEvent = {
+          contestId,
+          submissionId,
+          problemId,
+          userId,
+          verdict: finalVerdict,
+          timestamp: Date.now(),
+        };
+        await redisPublisher.publish(
+          REDIS_KEYS.CHANNEL_CONTEST_UPDATES,
+          JSON.stringify(contestEvent)
+        );
       } catch {}
     }
 

@@ -22,6 +22,7 @@ import { formatIST } from '@judge/shared';
 import {
   getContest,
   getContestLeaderboard,
+  getContestLeaderboardLiveUrl,
   getContestProblems,
   registerForContest,
   unregisterFromContest,
@@ -96,6 +97,61 @@ function ContestRankBadge({ rank }: { rank: number }) {
   return <span className="text-sm font-semibold text-slate-400">#{rank}</span>;
 }
 
+export type LiveConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'disconnected';
+
+export function LiveStatusBadge({ status }: { status: LiveConnectionStatus }) {
+  switch (status) {
+    case 'live':
+      return (
+        <span
+          data-testid="live-status-badge"
+          className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400"
+          title="Live real-time updates active"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          Live
+        </span>
+      );
+    case 'connecting':
+      return (
+        <span
+          data-testid="live-status-badge"
+          className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-400"
+          title="Connecting to real-time updates..."
+        >
+          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          Connecting
+        </span>
+      );
+    case 'reconnecting':
+      return (
+        <span
+          data-testid="live-status-badge"
+          className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-400"
+          title="Reconnecting to real-time updates..."
+        >
+          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          Reconnecting
+        </span>
+      );
+    case 'disconnected':
+    default:
+      return (
+        <span
+          data-testid="live-status-badge"
+          className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/30 bg-slate-700/20 px-2.5 py-0.5 text-xs font-medium text-slate-400"
+          title="Real-time updates disconnected"
+        >
+          <span className="h-2 w-2 rounded-full bg-slate-500" />
+          Disconnected
+        </span>
+      );
+  }
+}
+
 export function ContestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const contestId = id ?? '';
@@ -105,6 +161,7 @@ export function ContestDetailPage() {
   const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
   const [regActionPending, setRegActionPending] = useState(false);
   const [regActionError, setRegActionError] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<LiveConnectionStatus>('connecting');
 
   // Live timer interval updated once per second
   useEffect(() => {
@@ -154,6 +211,111 @@ export function ContestDetailPage() {
     queryFn: ({ signal }) => getContestLeaderboard(contestId, signal),
     enabled: Boolean(contestId),
   });
+
+  // Real-time Contest Leaderboard updates via Server-Sent Events (SSE)
+  useEffect(() => {
+    if (!contestId) {
+      setLiveStatus('disconnected');
+      return;
+    }
+
+    if (typeof EventSource === 'undefined') {
+      setLiveStatus('disconnected');
+      return;
+    }
+
+    setLiveStatus('connecting');
+    const sseUrl = getContestLeaderboardLiveUrl(contestId);
+    let eventSource: EventSource | null = null;
+    let isCancelled = false;
+    let handleLeaderboard: ((event: MessageEvent) => void) | null = null;
+
+    try {
+      eventSource = new EventSource(sseUrl, { withCredentials: true });
+
+      eventSource.onopen = () => {
+        if (!isCancelled) {
+          setLiveStatus('live');
+        }
+      };
+
+      handleLeaderboard = (event: MessageEvent) => {
+        if (isCancelled) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data && Array.isArray(data.leaderboard)) {
+            queryClient.setQueryData(['contest-leaderboard', contestId], data.leaderboard);
+          }
+        } catch {
+          // safely ignore malformed data
+        }
+      };
+
+      eventSource.addEventListener('leaderboard', handleLeaderboard);
+      eventSource.onmessage = handleLeaderboard;
+
+      eventSource.onerror = () => {
+        if (isCancelled) return;
+        // If readyState is CLOSED (2), connection permanently closed
+        if (eventSource && eventSource.readyState === 2) {
+          setLiveStatus('disconnected');
+        } else {
+          // Otherwise browser is actively attempting native automatic reconnection
+          setLiveStatus('reconnecting');
+        }
+      };
+    } catch {
+      setLiveStatus('disconnected');
+    }
+
+    return () => {
+      isCancelled = true;
+      if (eventSource) {
+        if (handleLeaderboard) {
+          eventSource.removeEventListener('leaderboard', handleLeaderboard);
+        }
+        eventSource.onmessage = null;
+        eventSource.onerror = null;
+        eventSource.onopen = null;
+        eventSource.close();
+      }
+      setLiveStatus('disconnected');
+    };
+  }, [contestId, queryClient]);
+
+  // Boundary handling: schedule automatic leaderboard refreshes when freeze starts or contest ends
+  useEffect(() => {
+    if (!contest) return;
+
+    const now = Date.now();
+    const endMs = new Date(contest.endTime).getTime();
+    const freezeMinutes = contest.freezeMinutes ?? 0;
+    const freezeMs = freezeMinutes > 0 ? endMs - freezeMinutes * 60 * 1000 : null;
+
+    const timers: NodeJS.Timeout[] = [];
+
+    // Schedule freeze start refresh if freeze is in the future
+    if (freezeMs && freezeMs > now) {
+      const delay = freezeMs - now;
+      const t = setTimeout(() => {
+        void refetchLeaderboard();
+      }, delay);
+      timers.push(t);
+    }
+
+    // Schedule contest end refresh if end is in the future
+    if (endMs > now) {
+      const delay = endMs - now;
+      const t = setTimeout(() => {
+        void refetchLeaderboard();
+      }, delay);
+      timers.push(t);
+    }
+
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+    };
+  }, [contest, refetchLeaderboard]);
 
   const isContestNotFound =
     axios.isAxiosError(contestError) && contestError.response?.status === 404;
@@ -581,15 +743,18 @@ export function ContestDetailPage() {
 
       {/* Contest Leaderboard Section */}
       <section aria-labelledby="contest-leaderboard-heading" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-amber-400" />
-            <h2
-              id="contest-leaderboard-heading"
-              className="text-xl font-bold tracking-tight text-white"
-            >
-              Contest Leaderboard
-            </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-5 w-5 text-amber-400" />
+              <h2
+                id="contest-leaderboard-heading"
+                className="text-xl font-bold tracking-tight text-white"
+              >
+                Contest Leaderboard
+              </h2>
+            </div>
+            <LiveStatusBadge status={liveStatus} />
           </div>
 
           <button
