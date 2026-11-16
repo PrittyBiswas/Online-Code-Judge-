@@ -86,3 +86,82 @@ pnpm build
   - Loading, empty & error states: Shows skeleton on initial load, empty state when no ranked users exist, and alert with retry button on API failure.
   - User highlighting: Identifies and highlights the current authenticated user's row with a "You" badge.
   - Pagination: Navigates between pages with Previous/Next buttons and updates displayed slice.
+
+---
+
+## 6. Day 18 & 19 Contest & Contest Leaderboard Verification
+
+- **Contest Lifecycle & Access Control (`apps/api/tests/contests.test.ts`, `apps/api/tests/postgres.integration.test.ts`)**:
+  - `POST /api/contests`: Admin / Problem Setter contest creation with time window validation (`startTime < endTime`).
+  - `POST /api/contests/:id/register`: Authenticated user registration with duplicate prevention (`409 Conflict`).
+  - Time-window enforcement: Submitting outside `[startTime, endTime]` is rejected with `400 Bad Request`.
+  - Non-registered submissions rejected with `403 Forbidden`.
+  - Hidden contest problems are inaccessible to non-registered users prior to contest start.
+- **ACM-ICPC Scoring & Freeze (`apps/api/tests/contest-leaderboard.test.ts`)**:
+  - 20-minute penalty per incorrect attempt prior to first accepted solve.
+  - Duplicate solves on the same problem do not increase points or penalties.
+  - Scoreboard freeze: Participant queries return standings frozen at `freezeTime`; admin queries return live unfrozen standings.
+  - Admin unfreeze toggles public scoreboard to live standings.
+- **Frontend Contest Tests (`apps/frontend/tests/contests.test.tsx`)**:
+  - Contest list rendering with Active, Upcoming, and Past status badges.
+  - Contest detail view with registration button and countdown timer.
+  - Contest leaderboard rendering with freeze banner and per-problem status.
+
+---
+
+## 7. Day 20 Notification System Verification
+
+- **Notification API & Delivery (`apps/api/tests/notifications.test.ts`)**:
+  - `GET /api/notifications`: Returns user's unread and read notifications with pagination; strictly scopes by authenticated `userId`.
+  - `PATCH /api/notifications/:id/read`: Marks a single notification as read; returns `404` or `403` on cross-user attempt.
+  - `POST /api/notifications/read-all`: Marks all notifications for authenticated user as read.
+  - Automatic emission: Submission verdict completion triggers automated notification insertion.
+  - Contest announcement broadcast: Publishes announcement to registered participants via Redis.
+- **Reconciliation Sweep & Distributed Locking**:
+  - Sweeper selects unnotified completed submissions with `submission:<id>` idempotency key.
+  - Distributed lock with atomic Lua script renewal prevents concurrent sweep runs.
+  - Immediate abort when lock renewal fails; graceful shutdown releases lock.
+
+---
+
+## 8. Day 21 End-to-End Integration Verification
+
+- **Comprehensive E2E User Journey (`apps/api/tests/e2e-workflow.integration.test.ts`)**:
+  - **Stage 1 (Auth)**: Register normal user and admin user, verify HttpOnly cookie issuance.
+  - **Stage 2 (Problem Setup)**: Admin creates problem and uploads hidden test cases to MinIO.
+  - **Stage 3 (Sample Run)**: User runs code against sample input via `sample-run-queue`, polls result.
+  - **Stage 4 (Official Submission)**: User submits code via `judge-queue`, worker executes in Docker sandbox.
+  - **Stage 5 (Real-Time SSE)**: Client receives monotonic SSE status events (`QUEUED` -> `RUNNING` -> `ACCEPTED`).
+  - **Stage 6 (Leaderboard)**: User solve updates global leaderboard standing with penalty.
+  - **Stage 7 (Contests)**: Admin creates contest, user registers, submits solution, views standings.
+  - **Stage 8 (Notifications)**: User verifies verdict notification received and marks it as read.
+
+---
+
+## 9. Day 22 Production Readiness & Observability Verification
+
+- **Health Probes (`apps/api/tests/health.test.ts`)**:
+  - `GET /health/live`: Returns `200 OK` liveness status immediately without downstream dependencies.
+  - `GET /health/ready`: Checks PostgreSQL (`SELECT 1`), Redis (`PING`), and MinIO (`listBuckets`); returns `200` when healthy, `503` when any dependency is down.
+- **Graceful Shutdown**:
+  - Intercepts `SIGTERM` and `SIGINT`, halts HTTP listener, drains active requests, pauses BullMQ workers, and closes database/Redis connection pools cleanly.
+- **Docker Compose Production Setup**:
+  - `docker-compose.prod.yml` runs all services as multi-stage production containers behind Nginx reverse proxy.
+  - Verifies Nginx reverse proxy configuration (`proxy_buffering off` for SSE, security headers).
+
+---
+
+## 10. Day 23 Documentation & Code Quality Verification Battery
+
+Execute full verification suite:
+
+```powershell
+pnpm format:check       # Prettier code formatting verification
+pnpm lint               # ESLint static analysis across monorepo
+pnpm typecheck          # TypeScript compiler verification across all packages
+pnpm test               # Offline unit test suite
+pnpm test:integration   # Live PostgreSQL + Redis + MinIO + Worker integration tests
+pnpm test:safety        # Docker sandbox adversarial security test suite (SAFE-01 to SAFE-09)
+pnpm build              # Production build verification across all apps and packages
+pnpm infra:verify       # Live infrastructure connectivity verification
+```

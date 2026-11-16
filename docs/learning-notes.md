@@ -257,3 +257,84 @@ A code judge uses a message queue because compiling and running code takes varia
      - **Unified Atomic Lua Script (`RECORD_SOLVE_LUA_SCRIPT`)**: Accepts `solvedSetKey`, `leaderboardKey`, and `rebuildPointerKey`. Atomically executes argument validation, type checking, duplicate solve detection (`SISMEMBER`), user solved set addition (`SADD`), canonical leaderboard score calculation (`ZADD`), and—if a rebuild is currently active—updates the temporary leaderboard and live-solves set (`SADD <tempKey>:livesolves:<userId>`). Eliminates application-level gaps between canonical and temporary writes, preventing race conditions during rebuild publication.
      - **Atomic Leaderboard Key Swap (`SWAP_LEADERBOARD_KEYS_LUA_SCRIPT`)**: Atomically executes `RENAME tempKey canonicalKey` and `DEL judge:leaderboard:rebuilding` in a single Redis transaction, eliminating any window where concurrent solves could recreate an orphaned temporary key.
      - **Active Rebuild Watchdog Pointer Renewal**: Heartbeat watchdog runs every 5000ms checking the rebuild lock token. Upon verifying lock ownership, it atomically renews both `judge:lock:leaderboard:rebuild` and `judge:leaderboard:rebuilding` via `pexpire`, preventing pointer expiration during rebuilds lasting longer than the 30-second TTL.
+
+---
+
+## Day 18 — Contest Time Windows, Registration & Problem Scoping
+
+1. **Temporal Access Control**:
+   - Contests operate across four distinct lifecycle states: `DRAFT`, `UPCOMING`, `ACTIVE`, and `PAST`.
+   - Submissions are restricted strictly to `ACTIVE` contests where `startTime <= now <= endTime`. Any submission outside this window is rejected at the API controller layer with `400 Bad Request`.
+2. **Registration Enforcement**:
+   - Participants must explicitly register (`contest_registrations`) prior to submission. This ensures that uninvited users cannot submit or distort contest rankings.
+3. **Problem Scoping & Information Leakage**:
+   - Contest problems must remain hidden from non-registered users and unauthenticated visitors before `startTime`. Only metadata necessary for contest discovery (title, duration) is public.
+
+---
+
+## Day 19 — ACM-ICPC Penalty Scoring, Scoreboard Freeze & Live SSE Updates
+
+1. **ACM-ICPC Scoring Formula**:
+   - Ranking is determined primarily by total problems solved (descending), then by total penalty time in minutes (ascending).
+   - Penalty for each solved problem equals the time in minutes elapsed from contest start to the first accepted submission, plus a **20-minute penalty** for each incorrect submission prior to the accepted solve.
+   - Submissions made after the first accepted solve on a problem do not incur additional penalties.
+2. **Scoreboard Freeze Mechanics**:
+   - To preserve suspense during the final hour of a competition, the scoreboard freezes at `freezeTime`.
+   - During the freeze window, submissions are still judged normally, but public leaderboard endpoints return a cached snapshot of the standings frozen at `freezeTime`.
+   - Contest administrators and problem setters retain access to an authenticated live leaderboard endpoint.
+3. **Dual-View Redis Caching**:
+   - Storing both `judge:contest:<id>:leaderboard:live` and `judge:contest:<id>:leaderboard:frozen` in Redis allows instant retrieval without expensive re-computation during traffic spikes.
+
+---
+
+## Day 20 — Event-Driven Notifications, Sweep Reconciliation & Distributed Locks
+
+1. **Decoupled Notification Architecture**:
+   - When a submission completes evaluation, the worker or API emits a notification event. However, to guarantee delivery even if event emission fails, a background reconciliation sweeper scans for completed submissions lacking a corresponding notification row.
+2. **Idempotent Reconciliation**:
+   - Notification insertion uses an idempotency key (e.g. `submission:<id>`). A unique database constraint prevents duplicate notification rows even if the sweeper and event handler execute simultaneously.
+3. **Distributed Locking with Heartbeat Watchdog**:
+   - Background sweepers running across multiple API or cron instances must not execute concurrently.
+   - A Redis distributed lock (`SET key token NX PX 30000`) guarantees mutual exclusion.
+   - A background heartbeat interval renews the lock TTL using an atomic Lua script that verifies the unique ownership token. If renewal fails, the sweeper immediately aborts new work.
+
+---
+
+## Day 21 — Multi-Stage Integration Testing & Regression Hardening
+
+1. **End-to-End User Journeys vs Unit Isolation**:
+   - While unit tests verify functions in isolation with mocks, E2E integration tests verify stateful transitions across real services (PostgreSQL, Redis, MinIO, BullMQ, Docker).
+   - An 8-stage integration workflow proves that the complete data pipeline works: Registration -> Auth Cookie -> Problem Creation -> MinIO Upload -> Sample Run -> Submission Queue -> Docker Execution -> SSE Streaming -> Leaderboard Update -> Contest Registration -> Notification Delivery.
+2. **Pagination Boundary Invariants**:
+   - When calculating pagination metadata across dynamic test runs, asserting `totalPages >= 1` rather than a hardcoded static count avoids false test failures caused by residual rows from earlier test runs.
+
+---
+
+## Day 22 — Production Containerization, Health Probes & Graceful Shutdown
+
+1. **Multi-Stage Docker Builds**:
+   - Separating `build` and `runtime` stages ensures production container images contain only compiled JavaScript artifacts and production `node_modules`, reducing image size by up to 80% and omitting devDependencies and compiler toolchains.
+2. **Liveness vs Readiness Probes**:
+   - **Liveness (`/health/live`)**: Answers "Is the Node.js process alive and able to accept HTTP connections?" If this fails, the container orchestrator restarts the container.
+   - **Readiness (`/health/ready`)**: Answers "Are downstream dependencies (PostgreSQL, Redis, MinIO) connected and able to process traffic?" If this fails, the reverse proxy removes the container from the routing pool without restarting it.
+3. **Graceful Shutdown Protocol**:
+   - On `SIGTERM` / `SIGINT`:
+     1. Stop accepting new HTTP requests.
+     2. Wait for active HTTP requests to complete (with a timeout, e.g. 10s).
+     3. Pause and close BullMQ queue workers.
+     4. Release distributed locks.
+     5. Close database and Redis connection pools cleanly.
+     6. Exit process with code 0.
+
+---
+
+## Day 23 — System Architecture, Design Patterns & Architecture Decision Records (ADRs)
+
+1. **Architectural Decision Records (ADRs)**:
+   - ADRs capture the context, alternatives considered, decision, and consequences of significant technical choices.
+   - Maintaining formal ADRs prevents architectural erosion and explains _why_ particular trade-offs were chosen (e.g. why BullMQ over RabbitMQ, why Drizzle over Prisma, why HttpOnly cookies over localStorage).
+2. **Distributed Systems Patterns in a Code Judge**:
+   - Code judges are distributed systems characterized by asynchronous boundaries, untrusted execution, state synchronization, and high concurrency.
+   - Applying well-known patterns (Cache-Aside, Outbox / Reconciliation, Disposable Sandbox, Optimistic Concurrency, SSE Monotonic Streaming, Composite Score Encoding) provides clarity, predictability, and fault tolerance.
+3. **Root Cause Analysis (Post-Mortems)**:
+   - Documenting real failure modes (DNS blocking in `--network none`, Redis Pub/Sub mid-snapshot races, lock renewal loss during sweep) transforms operational incidents into permanent organizational knowledge and automated regression tests.

@@ -152,7 +152,58 @@ This checklist tracks milestone completion across implementation days.
 - [x] Add automated backend tests (`apps/api/tests/leaderboard.test.ts`) and frontend tests (`apps/frontend/tests/leaderboard.test.tsx`) covering ranking, tie-breaking, pagination, security redaction, and user highlighting
 - [x] Update documentation (`apps/api/README.md`, `apps/frontend/README.md`, `docs/test-plan.md`, `docs/changelog.md`, `docs/known-issues.md`, `docs/learning-notes.md`, `docs/project-checklist.md`)
 
-## Day 18+ — Upcoming Milestones (Not Started Yet)
+## Day 18 — Contest Management System
 
-- [ ] Complete remaining contest persistence tables, freeze windows & cron recovery jobs
-- [ ] Build contest participation UI and contest leaderboard view
+- [x] Define contest tables (`contests`, `contest_problems`, `contest_registrations`) in Drizzle schema and migrations
+- [x] Implement contest lifecycle APIs (`createContest`, `listContests`, `getContestById`, `registerForContest`, `getContestProblems`)
+- [x] Enforce contest time window validation (`startTime <= now <= endTime`) and registration requirements for contest submissions
+- [x] Implement frontend contest pages (`ContestsPage.tsx`, `ContestDetailPage.tsx`) with registration and countdown timers
+- [x] Add automated unit and integration tests for contests API and access control
+
+## Day 19 — Live Contest Leaderboard & Scoring System
+
+- [x] Implement ACM-ICPC contest scoring algorithm (20-minute penalty per incorrect attempt)
+- [x] Implement scoreboard freeze window (`freezeTime` to `unfreezeTime`) with dual-view (frozen participant view vs live admin view)
+- [x] Implement live contest leaderboard streaming via Redis Pub/Sub and SSE
+- [x] Add frontend contest standings table (`ContestLeaderboardPage.tsx`) with frozen status indicators
+- [x] Add automated tests for contest leaderboard calculation, penalty scoring, and freeze behavior
+
+## Day 20 — Notification System & Real-Time Alerting
+
+- [x] Define `notifications` table schema and Drizzle migration
+- [x] Implement notification APIs (`GET /api/notifications`, `PATCH /:id/read`, `POST /read-all`)
+- [x] Implement automated verdict notification emission upon submission evaluation
+- [x] Implement background reconciliation sweeper with idempotency keys and distributed locking via atomic Lua scripts
+- [x] Add frontend notification bell icon, unread count badge, and notification inbox drawer
+- [x] Add automated tests for notification delivery, mark as read, sweeper reconciliation, and distributed lock heartbeat
+
+## Day 21 — End-to-End Integration Testing & Regression Hardening
+
+- [x] Implement comprehensive 8-stage E2E integration test suite (`apps/api/tests/e2e-workflow.integration.test.ts`)
+- [x] Verify complete user journey: Auth -> Problem Creation -> MinIO -> Sample Run -> Submit -> SSE -> Leaderboard -> Contest -> Notifications
+- [x] Verify Docker sandbox security containment (`SAFE-01` to `SAFE-09`) under stress
+- [x] Harden test assertions and pagination invariants across dynamic database test states
+
+## Day 22 — Production Readiness, Deployment Preparation & Observability
+
+- [x] Create multi-stage production Dockerfiles for `api`, `frontend`, `judge-worker`, `cron`, and `stub-mail`
+- [x] Configure Nginx reverse proxy with SSE buffering disabled, security headers, and health probe forwarding
+- [x] Create `docker-compose.prod.yml` with isolated networks, healthchecks, restart policies, and resource limits
+- [x] Implement shallow liveness probe (`/health/live`) and deep readiness probe (`/health/ready`)
+- [x] Implement structured JSON logging with automatic secret and credential redaction
+- [x] Implement graceful shutdown handlers (`SIGTERM`, `SIGINT`) across API and Worker services
+- [x] Create comprehensive production deployment guide (`docs/deployment-guide.md`)
+
+## Day 23 — Documentation and Code Quality
+
+- [x] Complete documentation audit across monorepo and docs directory
+- [x] Create comprehensive system architecture document with Mermaid diagrams (`docs/architecture.md`)
+- [x] Create 10 verified Architectural Decision Records (`docs/decisions.md`)
+- [x] Document all 13 distributed system Pattern Cards (`docs/pattern-notes.md`)
+- [x] Document 6 root-cause failure post-mortems (`docs/failure-report.md`)
+- [x] Document step-by-step operational runbook (`docs/runbook.md`)
+- [x] Document acceptance criteria verification map (`docs/acceptance-map.md`)
+- [x] Update root and per-app README files (`README.md`, `apps/api/`, `apps/frontend/`, `apps/judge-worker/`, `apps/cron/`, `apps/stub-mail/`, `packages/shared/`)
+- [x] Update `docs/safety.md`, `docs/changelog.md`, `docs/known-issues.md`, `docs/test-plan.md`, and `docs/learning-notes.md`
+- [x] Perform code quality and secret audit (ESLint, Prettier, TypeScript strict, `.env.example` completeness)
+- [x] Verify test suites, builds, and infrastructure connectivity across monorepo

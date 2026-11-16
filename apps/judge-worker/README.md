@@ -103,36 +103,11 @@ pnpm infra:verify
 - `processSampleRunJob()` validates `SampleRunJobData` (`type === 'SAMPLE_RUN'`) with Zod, executes `runInSandbox()` using the exact same Docker lockdown flags and resource limits, bounds `stdout`/`stderr` output, and writes `RUNNING`/`COMPLETED`/`FAILED` state to Redis (`judge:sample:job:<runId>`, `300s` TTL) without touching `submissions`, `test_cases`, MinIO, or `leaderboard`.
 - Official judging on `judge-queue` (`processSubmissionJob`) remains strictly separate: it atomically claims `submissions` rows in PostgreSQL, publishes `RUNNING` and terminal `SubmissionEvent` updates to Redis Pub/Sub (`judge:pubsub:submissions`) for authenticated SSE clients, loads all official `test_cases` from MinIO/Silo, stops early on first failure, and persists official verdicts + leaderboard solves idempotently.
 
----
+## Production Containerization & Sibling Containers (Day 22)
 
-## Verdict Matrix, Edge Cases & Known Limitations
-
-| Scenario                                                  | Verdict / Behavior                                                               |
-| :-------------------------------------------------------- | :------------------------------------------------------------------------------- |
-| All test cases pass (`CRLF`/`LF`, trailing spaces/lines)  | `ACCEPTED`                                                                       |
-| Mismatched content, leading/internal spaces, or tabs      | `WRONG_ANSWER` (`failedTestIndex` set; hidden test contents redacted)            |
-| Invalid JS/Python syntax                                  | `COMPILATION_ERROR`                                                              |
-| Exception, `process.exit(127)`, network dial, root FS err | `RUNTIME_ERROR`                                                                  |
-| Infinite loop or DNS stall in `--network none`            | `TIME_LIMIT_EXCEEDED`                                                            |
-| Exceeding `--memory` (`137`/`SIGKILL`/`MemoryError`/heap) | `MEMORY_LIMIT_EXCEEDED`                                                          |
-| Exceeding `SANDBOX_OUTPUT_LIMIT_BYTES` (default 64 KB)    | `OUTPUT_LIMIT_EXCEEDED`                                                          |
-| Unsupported language / empty code / missing test object   | `INTERNAL_ERROR` + `PermanentWorkerError` (no retry)                             |
-| Corrupted/null BullMQ job payload                         | `PermanentWorkerError('INVALID_JOB_DATA')` (no crash, no `RUNNING` lock)         |
-| Docker daemon offline / DB transient failure              | Releases `RUNNING -> QUEUED` and throws `RetryableWorkerError` for backoff retry |
-
-**Known Limitations**:
-
-- In `JS_BOOTSTRAP`, synchronous `fs.readFileSync(0, 'utf8')` buffers `{ code, input }` inside the container and `/tmp` tmpfs is capped at `16m`; multi-megabyte inputs (>16 MB) exceed container scratch limits by design.
-- Default `SANDBOX_OUTPUT_LIMIT_BYTES` is `65536` bytes (64 KB) unless configured higher via env (`maxOutputBytes`, up to `1048576` in `.env` / `env.ts`).
-- `http.get('http://google.com')` with DNS resolution inside `--network none` may stall until `timeLimitMs` (`TIME_LIMIT_EXCEEDED`), whereas direct IP sockets (`net.connect(80, '1.1.1.1')`) fail immediately (`RUNTIME_ERROR`); both completely prevent network access.
-
----
-
-## Sample Run Queue Processor (Day 14)
-
-- In addition to `judge-queue`, `startJudgeWorker()` runs a dedicated `sampleWorker` on `sample-run-queue` (`apps/judge-worker/src/processor/sampleRunProcessor.ts`).
-- `processSampleRunJob()` validates `SampleRunJobData` (`type === 'SAMPLE_RUN'`) with Zod, executes `runInSandbox()` using the exact same Docker lockdown flags and resource limits, bounds `stdout`/`stderr` output, and writes `RUNNING`/`COMPLETED`/`FAILED` state to Redis (`judge:sample:job:<runId>`, `300s` TTL) without touching `submissions`, `test_cases`, MinIO, or `leaderboard`.
-- Official judging on `judge-queue` (`processSubmissionJob`) remains strictly separate: it atomically claims `submissions` rows in PostgreSQL, publishes `RUNNING` and terminal `SubmissionEvent` updates to Redis Pub/Sub (`judge:pubsub:submissions`) for authenticated SSE clients, loads all official `test_cases` from MinIO/Silo, stops early on first failure, and persists official verdicts + leaderboard solves idempotently.
+- In `docker-compose.prod.yml`, the worker is deployed as a container mounting `/var/run/docker.sock` to launch disposable sibling sandbox containers.
+- Untrusted user submissions run in isolated throw-away containers (`--network none`, `--cap-drop ALL`, `--read-only`, non-root user `1000:1000`) and have zero access to the host or the Docker socket.
+- Graceful shutdown handles `SIGTERM` / `SIGINT` by stopping job processing, waiting for active test runs, cleaning up active sandbox containers, and disconnecting from Redis and PostgreSQL.
 
 ---
 

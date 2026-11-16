@@ -8,6 +8,12 @@ Standalone Node.js scheduler service for recurring maintenance, recovery, and co
 2. **Container & Artifact Cleanup**: Remove any orphaned sandbox containers or expired temporary files.
 3. **Contest Lifecycle (Tier 2)**: Automatically open/close contests and freeze leaderboards on schedule (`Asia/Kolkata` / IST), guarded by Redis distributed run-claim locks so multiple cron instances never duplicate work.
 
+## Current Responsibilities & Implementation
+
+- **Service Lifecycle**: Structured Pino logging (`judge-cron`), configurable log level (`LOG_LEVEL`), and graceful shutdown handling (`SIGTERM`/`SIGINT`).
+- **Periodic Scheduler**: Ticks on configurable background intervals for recurring maintenance jobs.
+- **Worker/API Sweep Coordination**: The primary submission recovery sweeper is embedded inside `apps/judge-worker/src/recovery/recoveryService.ts` (running every `RECOVERY_INTERVAL_MS`), and the notification reconciliation sweeper runs in `apps/api/src/modules/notifications/notifications.service.ts` guarded by Redis distributed locks. `apps/cron` serves as a standalone process for decoupled background scheduling.
+
 ## Development Commands
 
 From the repository root (PowerShell):
@@ -17,11 +23,3 @@ pnpm dev:cron
 pnpm --filter @judge/cron typecheck
 pnpm --filter @judge/cron build
 ```
-
-## Implemented Today (Day 2)
-
-- TypeScript strict workspace configuration, `package.json` with `@judge/shared`, and entry point (`src/index.ts`).
-
-## Intentionally Postponed
-
-- BullMQ repeat schedulers, Redis run-claim locks, stuck-job recovery, and cleanup jobs.

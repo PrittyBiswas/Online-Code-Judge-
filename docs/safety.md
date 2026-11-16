@@ -107,7 +107,41 @@ pnpm test:safety
 - **Mechanism**: The worker streams stdout/stderr and immediately kills the container if cumulative bytes exceed 64 KB, returning `OUTPUT_LIMIT_EXCEEDED`.
 - **Attack Proved**: `AC-SAFE-06 (Output Flood)`.
 
-### 11. Host Worker Architecture (Safety Rule 6)
+### 11. Host Worker Architecture & Production Docker Socket Boundary
 
-- **Crucial Rule**: The Docker socket (`/var/run/docker.sock`) is **never mounted into any container**.
-- Giving a container access to the Docker socket gives that container root access to the entire host machine. Therefore, the `judge-worker` is run directly as a process on the host machine, safely interacting with the local Docker engine.
+- **Local Development**: The `judge-worker` runs directly as a Node.js process on the host machine. It invokes `docker` CLI directly via `child_process.execFile` without mounting the Docker socket into any container.
+- **Production Containerization (Day 22)**: In `docker-compose.prod.yml`, the worker runs inside a container with `/var/run/docker.sock` mounted (`Docker-out-of-Docker` sibling container pattern) to spawn disposable sandbox containers.
+  - **Critical Security Boundary**:
+    1. Untrusted submitted code runs inside disposable sandbox containers (`node:20-alpine`, `python:3.11-alpine`) with `--network none`, `--cap-drop ALL`, `--read-only`, and **zero socket or volume mounts**.
+    2. Untrusted code has **no network or filesystem access** to the Docker socket or the worker container.
+    3. The worker container itself possesses Docker daemon access to create sandbox containers. If the worker application itself were compromised (e.g. arbitrary code execution vulnerability in worker Node.js dependencies), an attacker could control the host Docker daemon.
+    4. **Hardened Production Recommendation**: For enterprise multi-tenant deployments, isolate the worker onto dedicated single-tenant VMs or employ microVM virtualization (e.g., Firecracker, AWS Fargate, or gVisor sandbox runtime) rather than sharing the host Docker daemon.
+
+---
+
+## 12. Contest Isolation & Access Control (Day 18 & 19)
+
+- **Registration Gate**: Contest submission requires authenticated registration (`POST /api/contests/:id/register`). Non-registered users receive `403 Forbidden`.
+- **Time-Window Enforcement**: Submissions before `startTime` or after `endTime` are rejected (`400 Bad Request: Contest is not currently active`).
+- **Frozen Scoreboard Isolation**: When a contest enters the frozen window (`freezeTime <= now < unfreezeTime`), public scoreboard queries receive frozen standings snapshot, preventing leak of late submissions. Admins and problem setters access the unfrozen live standings through authenticated endpoints.
+- **Author Scoping**: Unregistered participants cannot view hidden contest problems until the contest starts.
+
+---
+
+## 13. Notification System & Data Privacy (Day 20)
+
+- **Strict User Scoping**: `GET /api/notifications` and `PATCH /api/notifications/:id/read` enforce parameterized `WHERE user_id = :userId` queries. Cross-user notification enumeration or modification is impossible (`IDOR` prevented).
+- **Idempotency & Replay Protection**: Verdict notifications generate unique idempotency keys (`submission:<submissionId>`). Re-processing or concurrent sweep execution cannot create duplicate notifications or leak unread state.
+- **Broadcast Isolation**: Contest announcements broadcast via Redis Pub/Sub sanitize message content and target only registered contest participants.
+
+---
+
+## 14. Production Environment & Secret Redaction (Day 22 & 23)
+
+- **Strict Environment Validation**: Zod schema validation in `apps/api/src/config/env.ts` enforces non-empty `JWT_SECRET`, valid `DATABASE_URL`, `REDIS_URL`, and MinIO credentials. In `NODE_ENV=production`, fallback default secrets are strictly rejected at startup.
+- **Connection String & Log Redaction**: Structured JSON logging (`logger.ts`) sanitizes sensitive keys (`password`, `jwt`, `token`, `secret`, `authorization`, `cookie`) before emission. Database connection strings containing passwords are redacted from log outputs.
+- **MinIO Access Isolation**: Client browsers never interact directly with MinIO or receive S3 credentials. Hidden test cases and expected outputs are fetched solely server-side by the worker process.
+
+---
+
+## Automated Verification (`SAFE-01` to `SAFE-09`)

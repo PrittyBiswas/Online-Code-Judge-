@@ -56,8 +56,13 @@ pnpm build
   - Highlights the authenticated user's entry with an indigo accent and "You" badge.
   - Full loading skeleton, empty state ("No ranked coders yet"), error alert with retry button, and bounded pagination controls (Previous / Next with total pages indicator).
   - Strictly presents only public leaderboard fields without exposing private emails or account details.
-- Automated frontend auth, problem, sample-runner, official-submit, SSE, and leaderboard tests (`pnpm --filter @judge/frontend test`).
-
-## Intentionally Postponed
-
-- Full submission history page, contests, and admin views.
+- **Contest Exploration & Participation (Day 18)**:
+  - Added `/contests` (`ContestsPage`) and `/contests/:id` (`ContestDetailPage`) routes.
+  - Displays active, upcoming, and past contests with registration actions, time countdown timers, problem listings, and contest rules.
+- **Live Contest Leaderboard & Scoreboard Freeze (Day 19)**:
+  - Dedicated `/contests/:id/leaderboard` view showing real-time ACM-ICPC standings (solved count, penalty minutes, per-problem solve markers).
+  - Scoreboard freeze indicator banner alerting participants when standings are frozen, preserving final-hour suspense.
+- **Notification Inbox & Alerts (Day 20)**:
+  - Header bell icon with real-time unread notification badge counter.
+  - Slide-over notifications drawer with mark-as-read, read-all actions, and direct deep links to verdicts and contest announcements.
+- Automated frontend auth, problem, sample-runner, official-submit, SSE, leaderboard, contest, and notification tests (`pnpm --filter @judge/frontend test`).

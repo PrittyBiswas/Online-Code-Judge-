@@ -145,25 +145,39 @@ pnpm test:safety       # Live Docker sandbox security attack suite (SAFE-01 to S
 
 ## Implementation Status
 
-### Day 2 – Day 6 Completed
+### Completed Milestones (Days 1–23)
 
-- pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking, strict `tsconfig.base.json`, ESLint, Prettier, `.editorconfig`, and `.gitignore`.
-- Express API (`GET /`, `GET /health/live`, `/health/extensive`), React + Vite frontend (`apps/frontend`), and shared `@judge/shared` package.
-- Local Docker Compose infrastructure (`postgres`, `redis`, `minio`, idempotent `create-buckets`) with `127.0.0.1`-only port bindings, named volumes, health checks, `REDIS_URL` queue wiring, and `pnpm infra:verify`.
-- Drizzle ORM + `pg` PostgreSQL integration (`apps/api/src/db/`), core schema (`users`, `problems`, `test_cases`, `submissions`), migrations (`drizzle/migrations/`), and full CRUD integration (`pnpm test:integration`, `pnpm db:verify`).
-- Host-run BullMQ Judge Worker (`apps/judge-worker`) consuming `judge-queue`, downloading MinIO/Silo test cases via AWS SigV4, executing JavaScript & Python in disposable locked-down Docker containers (`--network none`, `--read-only`, `--cap-drop ALL`, `--user 1000:1000`), persisting verdicts idempotently to PostgreSQL, and publishing SSE updates — kept outside Docker Compose with zero `docker.sock` mounts.
-
-### Intentionally Postponed (Day 7+)
-
-- End-to-end frontend Monaco Editor coding submission UI, SSE live verdict view, contest database tables, and cron recovery jobs.
+- **Monorepo & Foundations (Days 1–2)**: pnpm monorepo workspace (`apps/*`, `packages/*`) with `workspace:*` linking, strict `tsconfig.base.json`, ESLint, Prettier, `.editorconfig`, and `.gitignore`.
+- **Infrastructure (Day 3)**: Docker Compose for PostgreSQL, Redis, and MinIO with persistent volumes, strict `127.0.0.1` binding, and health checks.
+- **Relational Storage & Migrations (Days 4–5)**: Drizzle ORM schemas, SQL migrations, relation constraints, indexes, and full transactional CRUD for users, problems, test cases, and submissions.
+- **Asynchronous Execution & Sandbox Engine (Days 6–9)**: BullMQ worker queues, MinIO hidden test case retrieval via AWS SigV4, throwaway Docker sandbox isolation (`--network none`, `--read-only`, `--tmpfs`, `--cap-drop ALL`, `--user 1000:1000`), recovery sweeps, and automated adversarial attack suite (`SAFE-01` to `SAFE-09`).
+- **Authentication & RBAC (Days 10–11)**: Bcrypt password hashing, HttpOnly `SameSite=Lax` JWT cookies, role-based access control (`ADMIN`, `PROBLEM_SETTER`, `USER`), and fail-open Redis login lockout.
+- **Problem Management & Full-Text Search (Days 12–13)**: MinIO test-case upload, PostgreSQL GIN full-text search, cursor-based pagination, React frontend problem browser, and safe Markdown/statement rendering.
+- **Interactive Code Editor & Isolated Sample Runs (Day 14)**: Monaco Editor integration, per-language code persistence, dedicated `sample-run-queue` executing in Docker sandbox with client parameter zero-trust.
+- **Official Submissions & Live SSE Streaming (Days 15–16)**: Official submission lifecycle, DB failure compensation, authenticated `Server-Sent Events` (`/api/submissions/:id/live`) with pre-snapshot race protection, monotonic status progression, and polling fallback.
+- **Global Leaderboard (Day 17)**: Dual-engine leaderboard using Redis Sorted Sets with composite float score (`problemsSolved * 10,000,000 + (9,999,999 - penalty)`), secondary tie-breaking, and PostgreSQL on-demand fallback.
+- **Contest Management (Day 18)**: Contests lifecycle (`DRAFT`, `UPCOMING`, `ACTIVE`, `PAST`), participant registration, time window validation, and problem visibility scoping.
+- **Live Contest Leaderboard & Scoreboard Freeze (Day 19)**: ACM-ICPC 20-minute penalty scoring, scoreboard freeze window, dual-view (frozen participant view vs live admin view), and real-time SSE updates.
+- **Notification System & Reconciliation Sweeper (Day 20)**: Notifications API, user inbox drawer with unread badges, automated verdict notifications, contest announcements, and background sweeper with distributed Redis locking.
+- **End-to-End Integration Testing & Regression Hardening (Day 21)**: Comprehensive 8-stage E2E user journey test (`e2e-workflow.integration.test.ts`), safety containment verification, and dynamic pagination boundary hardening.
+- **Production Readiness & Observability (Day 22)**: Multi-stage Dockerfiles, Nginx reverse proxy configuration, `docker-compose.prod.yml`, liveness (`/health/live`) and readiness (`/health/ready`) probes, structured JSON logging with secret redaction, and graceful shutdown handlers.
+- **Documentation & Code Quality (Day 23)**: Complete system architecture with Mermaid diagrams (`docs/architecture.md`), 10 ADRs (`docs/decisions.md`), 13 Pattern Cards (`docs/pattern-notes.md`), 6 failure post-mortems (`docs/failure-report.md`), operational runbook (`docs/runbook.md`), acceptance map (`docs/acceptance-map.md`), and strict code quality verification.
 
 ---
 
 ## Documentation
 
-- [`docs/infrastructure.md`](docs/infrastructure.md) — PostgreSQL, Redis, MinIO Compose setup, volumes, health checks & troubleshooting.
-- [`docs/safety.md`](docs/safety.md) — Non-negotiable sandbox security rules & Docker flags.
-- [`docs/learning-notes.md`](docs/learning-notes.md) — Day 1 foundational concept checks.
-- [`docs/project-checklist.md`](docs/project-checklist.md) — Milestone progress tracker.
-- [`docs/changelog.md`](docs/changelog.md) — Versioned change history.
-- [`docs/known-issues.md`](docs/known-issues.md) — Assumptions and known environment caveats.
+- [`docs/architecture.md`](docs/architecture.md) — Comprehensive system architecture, component breakdown, and Mermaid sequence diagrams.
+- [`docs/decisions.md`](docs/decisions.md) — Architectural Decision Records (ADR-001 through ADR-010).
+- [`docs/pattern-notes.md`](docs/pattern-notes.md) — 13 distributed systems and software design pattern cards.
+- [`docs/failure-report.md`](docs/failure-report.md) — 6 real-world development failure post-mortems and root-cause analyses.
+- [`docs/runbook.md`](docs/runbook.md) — Operational runbook for starting, verifying, troubleshooting, and recovering services.
+- [`docs/acceptance-map.md`](docs/acceptance-map.md) — Complete Tier 1 acceptance criteria verification map.
+- [`docs/safety.md`](docs/safety.md) — Non-negotiable sandbox security rules, Docker flags & security boundaries.
+- [`docs/deployment-guide.md`](docs/deployment-guide.md) — Production deployment instructions and Nginx configuration.
+- [`docs/infrastructure.md`](docs/infrastructure.md) — Local Docker Compose infrastructure, volumes, health checks & troubleshooting.
+- [`docs/test-plan.md`](docs/test-plan.md) — Security attack suite (`SAFE-01` to `SAFE-09`) and regression test plan.
+- [`docs/learning-notes.md`](docs/learning-notes.md) — Core concept notes and technical deep dives across Days 1–23.
+- [`docs/project-checklist.md`](docs/project-checklist.md) — Milestone progress tracker across all 23 implementation days.
+- [`docs/changelog.md`](docs/changelog.md) — Versioned changelog following Keep a Changelog conventions.
+- [`docs/known-issues.md`](docs/known-issues.md) — Assumptions, architectural trade-offs, and environment caveats.

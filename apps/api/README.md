@@ -65,10 +65,34 @@ pnpm test:integration
 - `GET /api/leaderboard` — Public leaderboard supporting bounded pagination (`page` min 1 default 1, `limit` min 1 max 100 default 50). Ranks users by problems solved descending, ties broken by lower penalty time (seconds), and deterministic tie-breaking (by username/userId). Reads live standings from Redis Sorted Set (`judge:leaderboard:global`) with batch username hydration, automatically falling back to parameterized PostgreSQL queries over `submissions` (`verdict = 'ACCEPTED'`) ordered by `createdAt ASC` when Redis is empty or unhealthy. Only exposes public fields (`rank`, `userId`, `username`, `problemsSolved`, `totalPenaltySeconds`, `score`), redacting emails and hashes. Returns `{ data: { leaderboard, pagination } }`.
 - `POST /api/leaderboard/rebuild` — Protected (`requireAuth`, `requireRole(Role.ADMIN)`). Recomputes all user solve counts and penalties from PostgreSQL `submissions` (`ACCEPTED` verdicts), clears and repopulates Redis Sorted Set `judge:leaderboard:global` and user solved sets (`judge:user:<id>:solved`), and returns `{ data: { message, count, rebuiltEntries } }`.
 
-## Endpoints Verified for Day 2
+## Contest Management Endpoints (Day 18)
 
-- `GET /` — Returns API metadata (`Online Code Judge API`, version, health path) using `@judge/shared`.
-- `GET /health/live` — Liveness probe returning `{ status: "ok", service: "@judge/api", uptime, timestamp }`.
+- `POST /api/contests` — Protected (`requireAuth`, `requireRole(Role.PROBLEM_SETTER, Role.ADMIN)`). Creates a contest with `title`, `description`, `startTime`, `endTime`, `freezeTime`, and associated problem IDs.
+- `GET /api/contests` — Public contest listing supporting filtering by status (`UPCOMING`, `ACTIVE`, `PAST`) and pagination.
+- `GET /api/contests/:id` — Public contest detail view showing status, start/end times, and problem count.
+- `POST /api/contests/:id/register` — Protected (`requireAuth`). Registers the authenticated user for the contest. Enforces registration before submissions are allowed.
+- `GET /api/contests/:id/problems` — Protected (`requireAuth`). Returns contest problems for registered participants once the contest has started.
+
+## Contest Leaderboard & Scoring Endpoints (Day 19)
+
+- `GET /api/contests/:id/leaderboard` — Returns ACM-ICPC contest standings (problems solved, penalty minutes with 20-min incorrect attempt penalties). Automatically applies scoreboard freeze during `freezeTime <= now < unfreezeTime` for normal participants, while providing live standings to admins/setters.
+- `POST /api/contests/:id/freeze` — Protected (`requireAuth`, `requireRole(Role.ADMIN)`). Manually freezes the contest scoreboard.
+- `POST /api/contests/:id/unfreeze` — Protected (`requireAuth`, `requireRole(Role.ADMIN)`). Unfreezes the contest scoreboard and recalculates final standings.
+- `GET /api/contests/:id/live` — Server-Sent Events stream for live contest leaderboard updates.
+
+## Notification Endpoints (Day 20)
+
+- `GET /api/notifications` — Protected (`requireAuth`). Retrieves paginated notifications for the authenticated user, ordered by creation time descending.
+- `PATCH /api/notifications/:id/read` — Protected (`requireAuth`). Marks a single notification as read, enforcing user ownership.
+- `POST /api/notifications/read-all` — Protected (`requireAuth`). Marks all notifications as read for the authenticated user.
+- `POST /api/notifications/broadcast` — Protected (`requireAuth`, `requireRole(Role.ADMIN)`). Broadcasts an announcement notification to contest participants.
+
+## Health Probes & Observability (Day 22)
+
+- `GET /health/live` — Shallow liveness probe returning `200 OK` indicating the Node.js process is responsive.
+- `GET /health/ready` — Deep readiness probe verifying connectivity to PostgreSQL (`SELECT 1`), Redis (`PING`), and MinIO (`listBuckets`). Returns `503 Service Unavailable` if any dependency is degraded.
+- **Graceful Shutdown**: Intercepts `SIGTERM` and `SIGINT`, ceases new connection acceptance, drains existing HTTP requests within a 10s grace period, and cleanly terminates database and Redis connection pools.
+- **Structured Logging**: Emits machine-readable JSON logs with automatic redaction of sensitive credentials, passwords, tokens, and cookies.
 
 ## Environment Configuration
 

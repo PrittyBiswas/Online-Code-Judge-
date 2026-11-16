@@ -3,6 +3,87 @@
 All notable changes to the Online Code Judge project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Day 23 (2026-11-16)
+
+### Added
+
+- **System Architecture & Design Documentation (`docs/architecture.md`)**:
+  - Authored comprehensive architecture documentation including high-level architecture narrative, component responsibilities, end-to-end submission sequence diagram (Mermaid), live leaderboard & contest architecture, and four-tier security boundaries.
+- **Architectural Decision Records (`docs/decisions.md`)**:
+  - Documented 10 verified ADRs (ADR-001 through ADR-010) covering Monorepo tooling, Docker sandbox isolation, BullMQ asynchronous queueing, PostgreSQL with Drizzle ORM, MinIO test case storage, SSE live streaming, HttpOnly cookie sessions, composite score encoding, distributed locking with Lua renewal, and multi-stage production Dockerization.
+- **Pattern Cards Collection (`docs/pattern-notes.md`)**:
+  - Documented all 13 core distributed systems and software patterns implemented in the Online Code Judge: Repository, Cache-Aside, Queue-Worker, Disposable Sandbox, Optimistic Concurrency (CAS), Compensating Transaction, Observer / Pub-Sub, SSE Monotonic Streaming with Pre-Snapshot Buffering, Distributed Lock with Heartbeat Watchdog, Composite Score Encoding, Keyset Pagination, Outbox / Periodic Sweeper, and Graceful Degradation / Circuit Breaking.
+- **Development Failure Post-Mortems (`docs/failure-report.md`)**:
+  - Documented 6 comprehensive post-mortems of actual development failures encountered and resolved: Docker socket mounting security boundary, Redis Pub/Sub mid-snapshot race condition, distributed lock renewal loss during contest finalization, asynchronous DNS resolution in `--network none`, keyset cursor pagination with duplicate timestamps, and database compensation on queue enqueue failure.
+- **Operational Runbook (`docs/runbook.md`)**:
+  - Documented complete operational instructions for local infrastructure startup, health verification, starting application services, running submissions, troubleshooting, worker stuck job recovery, and Docker resource pruning.
+- **Acceptance Criteria Verification Map (`docs/acceptance-map.md`)**:
+  - Mapped all Tier 1 criteria (`AC-ID`, `AC-PB`, `AC-TC`, `AC-SB`, `AC-JD`, `SAFE`, `AC-LV`, `AC-LB`, `AC-CT`, `AC-NT`, `AC-OP`) to concrete implementation files and test suites.
+
+## [Unreleased] - Day 22 (2026-11-15)
+
+### Added
+
+- **Multi-Stage Production Containerization (`infrastructure/docker/`)**:
+  - Added optimized multi-stage `Dockerfile` configurations for `api`, `frontend`, `judge-worker`, `cron`, and `stub-mail`.
+  - Added production reverse proxy configuration (`infrastructure/docker/nginx/default.conf`) with proxy buffering disabled for SSE, security headers, and rate limiting.
+  - Added `docker-compose.prod.yml` orchestrating all production containers with restart policies, resource constraints, health probes, and isolated internal networks.
+- **Production Health Probes & Observability (`apps/api/src/modules/health/`)**:
+  - Added `GET /health/live` (shallow liveness probe) and `GET /health/ready` (deep readiness probe verifying PostgreSQL, Redis, and MinIO connectivity).
+  - Added structured JSON logging (`apps/api/src/utils/logger.ts`, `apps/judge-worker/src/utils/logger.ts`) with automatic credential and token redaction.
+  - Added graceful shutdown signal handlers (`SIGTERM`, `SIGINT`) across API and Worker services, releasing connections, draining queues, and closing HTTP servers.
+- **Production Deployment Guide (`docs/deployment-guide.md`)**:
+  - Documented deployment architecture, environment configuration, staging and production deployment steps, database migration procedures, and backup/restore workflows.
+
+## [Unreleased] - Day 21 (2026-11-14)
+
+### Added
+
+- **End-to-End Integration Test Suite (`apps/api/tests/e2e-workflow.integration.test.ts`)**:
+  - Added an 8-stage end-to-end user journey test verifying user registration, admin problem creation with MinIO test cases, sample run execution, official submission lifecycle, live SSE status stream, global leaderboard standing update, contest registration and submission, and user notification delivery.
+- **Regression Hardening & Safety Containment**:
+  - Verified Docker sandbox containment under adversarial loads (`SAFE-01` to `SAFE-09`).
+  - Hardened pagination total-page assertions across dynamic test database states.
+
+## [Unreleased] - Day 20 (2026-11-14)
+
+### Added
+
+- **Notification System (`apps/api/src/modules/notifications/`)**:
+  - Added `notifications` database table schema and Drizzle migration.
+  - Implemented `GET /api/notifications` (inbox with pagination), `PATCH /api/notifications/:id/read` (mark as read), and `POST /api/notifications/read-all`.
+  - Added automated verdict notification emission on submission evaluation completion.
+  - Added contest announcement broadcasting to registered participants via Redis Pub/Sub.
+- **Background Sweep & Distributed Lock (`apps/cron/src/`, `apps/api/src/modules/notifications/notifications.service.ts`)**:
+  - Implemented periodic reconciliation sweeper for verdict notifications with idempotency keys.
+  - Added distributed lock with atomic Lua script renewal and heartbeat watchdog to prevent concurrent sweep execution.
+- **Frontend Notification Inbox (`apps/frontend/`)**:
+  - Added notification bell icon with unread count badge in header.
+  - Added interactive notifications drawer/modal with mark-as-read, read-all, and direct submission links.
+
+## [Unreleased] - Day 19 (2026-11-13)
+
+### Added
+
+- **Live Contest Leaderboard (`apps/api/src/modules/contests/`, `apps/api/src/modules/leaderboard/`)**:
+  - Implemented ACM-ICPC style contest scoring with 20-minute penalty per incorrect submission prior to first accepted solve.
+  - Added scoreboard freeze window support (`freezeTime` to `unfreezeTime`), hiding post-freeze submissions from participants while allowing live view for contest admins.
+  - Implemented live contest standings updates pushed via Redis Pub/Sub and SSE.
+- **Frontend Contest Standings UI (`apps/frontend/src/pages/ContestLeaderboardPage.tsx`)**:
+  - Added real-time contest standings table with frozen scoreboard banner and per-problem solve indicators.
+
+## [Unreleased] - Day 18 (2026-11-13)
+
+### Added
+
+- **Contest Management System (`apps/api/src/modules/contests/`, `packages/shared/`)**:
+  - Added database tables `contests`, `contest_problems`, and `contest_registrations`.
+  - Implemented contest lifecycle endpoints: create contest (admin/setter), list contests, view contest details, register for contest, and fetch contest problems.
+  - Enforced strict contest time windows (`startTime` to `endTime`) and registration validation for contest submissions.
+- **Frontend Contest Experience (`apps/frontend/src/pages/ContestsPage.tsx`, `ContestDetailPage.tsx`)**:
+  - Added contest list page showing upcoming, active, and past contests.
+  - Added contest detail page with registration button, countdown timer, problem list, and rules.
+
 ## [Unreleased] - Day 17 (2026-11-13)
 
 ### Added
