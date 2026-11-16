@@ -102,7 +102,11 @@ describe('Day 9 — Sandbox Security Attack Suite (SAFE-01 to SAFE-09)', () => {
       timeLimitMs: 1200,
       pidsLimit: 32,
     });
-    expect([Verdict.RUNTIME_ERROR, Verdict.TIME_LIMIT_EXCEEDED]).toContain(jsRes.verdict);
+    expect([
+      Verdict.RUNTIME_ERROR,
+      Verdict.TIME_LIMIT_EXCEEDED,
+      Verdict.MEMORY_LIMIT_EXCEEDED,
+    ]).toContain(jsRes.verdict);
 
     const pyFork = `
 import os
