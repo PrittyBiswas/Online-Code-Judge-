@@ -187,6 +187,20 @@ class SSEManager {
     }
     return total;
   }
+
+  public closeAll(message = 'Server shutting down'): void {
+    const payload = JSON.stringify({ message });
+    for (const group of this.clients.values()) {
+      for (const client of Array.from(group)) {
+        try {
+          client.res.write(`event: close\ndata: ${payload}\n\n`);
+          client.res.end();
+        } catch {}
+        client.cleanup();
+      }
+    }
+    this.clients.clear();
+  }
 }
 
 export const sseManager = new SSEManager();

@@ -1703,10 +1703,14 @@ describe('Day 18 Problem Visibility & Contest Freeze Integration Tests', () => {
       await leaderboardService.recordSolve(suiteUserA.id, sharedProblemId, 120);
       await leaderboardService.recordSolve(suiteUserB.id, sharedProblemId, 60);
 
-      // Verify global leaderboard reflects solves correctly
+      // Verify global leaderboard reflects solves correctly across pages
       const page1 = await leaderboardService.getGlobalLeaderboard({ page: 1, limit: 100 });
-      const page2 = await leaderboardService.getGlobalLeaderboard({ page: 2, limit: 100 });
-      const userIds = [...page1.leaderboard, ...page2.leaderboard].map((e) => e.userId);
+      const allEntries = [...page1.leaderboard];
+      for (let p = 2; p <= page1.pagination.totalPages; p++) {
+        const nextPage = await leaderboardService.getGlobalLeaderboard({ page: p, limit: 100 });
+        allEntries.push(...nextPage.leaderboard);
+      }
+      const userIds = allEntries.map((e) => e.userId);
       expect(userIds).toContain(suiteUserA.id);
       expect(userIds).toContain(suiteUserB.id);
 

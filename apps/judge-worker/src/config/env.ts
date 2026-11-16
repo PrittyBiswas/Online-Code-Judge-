@@ -73,11 +73,31 @@ const envSchema = z.object({
   SANDBOX_PYTHON_IMAGE: z.string().default('python:3.11-alpine'),
 });
 
+export type WorkerEnvConfig = z.infer<typeof envSchema>;
+
+export function validateWorkerProductionEnv(cfg: WorkerEnvConfig): void {
+  if (cfg.NODE_ENV !== 'production') return;
+
+  if (cfg.DATABASE_URL.includes('judge_secret_password')) {
+    throw new Error(
+      'DATABASE_URL must not use default development password (judge_secret_password) in production.'
+    );
+  }
+
+  const accessKey = cfg.MINIO_ACCESS_KEY || cfg.MINIO_ROOT_USER;
+  const secretKey = cfg.MINIO_SECRET_KEY || cfg.MINIO_ROOT_PASSWORD;
+  if (accessKey === 'minioadmin' || secretKey === 'minioadmin') {
+    throw new Error('MinIO storage credentials must not use default minioadmin in production.');
+  }
+}
+
 const parsed = envSchema.parse({
   ...process.env,
   DATABASE_URL: deriveDatabaseUrl(process.env),
   REDIS_URL: deriveRedisUrl(process.env),
 });
+
+validateWorkerProductionEnv(parsed);
 
 export const workerEnv = {
   ...parsed,

@@ -1,11 +1,8 @@
-import pino from 'pino';
-import { workerEnv } from './config/env.js';
+import { logger } from './utils/logger.js';
 import { startJudgeWorker } from './queue/worker.js';
 import { runInSandbox } from './sandbox/runner.js';
 import { processSubmissionJob } from './processor/judgeProcessor.js';
 import { workerLifecycle } from './recovery/shutdown.js';
-
-const logger = pino({ level: workerEnv.LOG_LEVEL, base: { service: 'judge-worker' } });
 
 async function bootstrap() {
   const runtime = await startJudgeWorker();

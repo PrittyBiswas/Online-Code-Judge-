@@ -90,6 +90,30 @@ export class ContestSSEManager {
     this.userClients.clear();
   }
 
+  public closeAll(message = 'Server shutting down'): void {
+    const payload = JSON.stringify({ message });
+    for (const group of this.clients.values()) {
+      for (const client of Array.from(group)) {
+        try {
+          client.res.write(`event: close\ndata: ${payload}\n\n`);
+          client.res.end();
+        } catch {}
+        client.cleanup();
+      }
+    }
+    this.clients.clear();
+
+    for (const group of this.userClients.values()) {
+      for (const res of Array.from(group)) {
+        try {
+          res.write(`event: close\ndata: ${payload}\n\n`);
+          res.end();
+        } catch {}
+      }
+    }
+    this.userClients.clear();
+  }
+
   private setupRedisSubscriber() {
     if (typeof redisSubscriber.on === 'function') {
       redisSubscriber.on('message', async (channel, message) => {

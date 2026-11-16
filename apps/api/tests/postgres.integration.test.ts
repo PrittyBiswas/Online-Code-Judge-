@@ -489,12 +489,13 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
     await leaderboardService.recordSolve(userId, problemId, 99); // Duplicate solve must not double-count
 
     const lbRes1 = await dispatchHttp('GET', '/api/leaderboard?page=1&limit=100');
-    const lbRes2 = await dispatchHttp('GET', '/api/leaderboard?page=2&limit=100');
     expect(lbRes1.status).toBe(200);
-    const allEntries = [
-      ...((lbRes1.body.data?.leaderboard as any[]) || []),
-      ...((lbRes2.body.data?.leaderboard as any[]) || []),
-    ];
+    const totalPages = lbRes1.body.data?.pagination?.totalPages || 1;
+    const allEntries = [...((lbRes1.body.data?.leaderboard as any[]) || [])];
+    for (let p = 2; p <= totalPages; p++) {
+      const nextLb = await dispatchHttp('GET', `/api/leaderboard?page=${p}&limit=100`);
+      allEntries.push(...((nextLb.body.data?.leaderboard as any[]) || []));
+    }
     const entry = allEntries.find((e) => e.userId === userId);
     expect(entry).toBeDefined();
     expect(entry.problemsSolved).toBe(1);

@@ -48,6 +48,37 @@ app.get('/health/live', (_req, res) => {
   res.status(200).json(payload);
 });
 
+// Readiness probe (AC-OP-04: verifies Postgres & Redis with bounded timeout)
+const readinessHandler = async (_req: express.Request, res: express.Response) => {
+  let dbOk = false;
+  try {
+    const dbPromise = isDatabaseHealthy();
+    const timeoutPromise = new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), 2000)
+    );
+    dbOk = await Promise.race([dbPromise, timeoutPromise]);
+  } catch {
+    dbOk = false;
+  }
+
+  const redisOk = isRedisHealthy();
+
+  const isReady = dbOk && redisOk;
+  res.status(isReady ? 200 : 503).json({
+    status: isReady ? 'ok' : 'degraded',
+    service: '@judge/api',
+    checks: {
+      database: dbOk ? 'ok' : 'down',
+      redis: redisOk ? 'ok' : 'down',
+    },
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+};
+
+app.get('/health/ready', readinessHandler);
+app.get('/health', readinessHandler);
+
 // Extensive healthcheck (AC-OP-04: verifies Postgres, Redis, MinIO, Docker)
 app.get('/health/extensive', async (_req, res) => {
   const dbOk = await isDatabaseHealthy();

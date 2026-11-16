@@ -1,7 +1,5 @@
 import { execFile } from 'child_process';
-import pino from 'pino';
-
-const logger = pino({ level: process.env.LOG_LEVEL || 'info', base: { service: 'judge-worker' } });
+import { logger } from '../utils/logger.js';
 
 export type ExecDockerFn = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
 

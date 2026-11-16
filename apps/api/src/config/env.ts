@@ -64,15 +64,46 @@ const envSchema = z.object({
   STUB_MAIL_URL: z.string().default('http://localhost:4005'),
 });
 
+export type ApiEnvConfig = z.infer<typeof envSchema>;
+
+export function validateApiProductionEnv(cfg: ApiEnvConfig): void {
+  if (cfg.NODE_ENV !== 'production') return;
+
+  if (!cfg.JWT_SECRET || cfg.JWT_SECRET.length < 32) {
+    throw new Error('JWT_SECRET environment variable (min 32 chars) is required in production.');
+  }
+  if (cfg.JWT_SECRET.includes('dev-only') || cfg.JWT_SECRET.includes('change-me')) {
+    throw new Error('JWT_SECRET must not use insecure development default value in production.');
+  }
+
+  if (
+    !cfg.COOKIE_SECRET ||
+    cfg.COOKIE_SECRET === 'dev-only-cookie-secret-change-me-32chars' ||
+    cfg.COOKIE_SECRET.includes('change-me')
+  ) {
+    throw new Error(
+      'COOKIE_SECRET must be explicitly set and not use default value in production.'
+    );
+  }
+
+  if (cfg.DATABASE_URL.includes('judge_secret_password')) {
+    throw new Error(
+      'DATABASE_URL must not use default development password (judge_secret_password) in production.'
+    );
+  }
+
+  if (cfg.FRONTEND_URL.includes('localhost')) {
+    throw new Error('FRONTEND_URL must be configured with a production domain, not localhost.');
+  }
+}
+
 const parsed = envSchema.parse({
   ...process.env,
   DATABASE_URL: deriveDatabaseUrl(process.env),
   REDIS_URL: deriveRedisUrl(process.env),
 });
 
-if (parsed.NODE_ENV === 'production' && !parsed.JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable (min 32 chars) is required in production.');
-}
+validateApiProductionEnv(parsed);
 
 const resolvedJwtSecret = parsed.JWT_SECRET || 'dev-only-jwt-secret-change-me-min-32-chars!';
 
