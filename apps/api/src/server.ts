@@ -2,13 +2,22 @@ import { app } from './app.js';
 import { env } from './config/env.js';
 import { closeDatabase } from './db/index.js';
 import { logger } from './utils/logger.js';
+import { notificationsService } from './modules/notifications/notifications.service.js';
 
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, `[API] Online Code Judge API listening on port ${env.PORT}`);
 });
 
+// Periodic contest notifications sweeper (every 60 seconds) (Day 20)
+const sweeperInterval = setInterval(() => {
+  notificationsService.checkAndDispatchContestLifecycleNotifications().catch((err: any) => {
+    logger.warn({ err: err?.message }, 'Failed running periodic contest lifecycle sweeper');
+  });
+}, 60000);
+
 function gracefulShutdown(signal: string) {
   logger.info({ signal }, 'Received shutdown signal. Closing HTTP server gracefully...');
+  clearInterval(sweeperInterval);
   server.close(async () => {
     try {
       await closeDatabase();

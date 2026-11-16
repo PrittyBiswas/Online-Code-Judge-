@@ -86,3 +86,16 @@ export interface ContestParticipantRow {
   user_id: string;
   registered_at: Date;
 }
+
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: Record<string, any> | null;
+  idempotency_key: string | null;
+  is_read: boolean;
+  created_at: Date;
+  read_at: Date | null;
+}

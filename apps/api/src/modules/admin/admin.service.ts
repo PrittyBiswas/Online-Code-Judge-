@@ -20,7 +20,7 @@ export class AdminService {
       try {
         const counts = await judgeQueue.getJobCounts('waiting', 'active', 'failed');
         queueDepth = counts.waiting || 0;
-      } catch {}
+      } catch { }
     }
 
     try {
@@ -127,7 +127,7 @@ export class AdminService {
           await judgeQueue.add('evaluate-submission', jobData, {
             jobId: `${sub.id}-rejudge-${Date.now()}`,
           });
-        } catch {}
+        } catch { }
       }
 
       return { message: 'Submission re-queued for rejudging', submissionId };
@@ -157,7 +157,7 @@ export class AdminService {
         if (!err && stdout.trim()) {
           const ids = stdout.trim().split('\n');
           for (const id of ids) {
-            execFile('docker', ['kill', id.trim()], () => {});
+            execFile('docker', ['kill', id.trim()], () => { });
           }
         }
       });

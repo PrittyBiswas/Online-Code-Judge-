@@ -24,6 +24,7 @@ import {
 import { AppError } from '../../utils/app-error.js';
 import { isUuid, mapDatabaseError } from '../../utils/db-error.js';
 import { type AuthUser } from '../../middleware/auth.js';
+import { notificationsService } from '../notifications/notifications.service.js';
 
 export class ContestsService {
   /**
@@ -317,6 +318,19 @@ export class ContestsService {
           userId,
         })
         .returning();
+
+      // Dispatch CONTEST_REGISTERED notification (Day 20)
+      notificationsService
+        .createNotification({
+          userId,
+          type: 'CONTEST_REGISTERED',
+          title: `Registered: ${contest.title}`,
+          message: `You have successfully registered for "${contest.title}". Best of luck!`,
+          idempotencyKey: `reg:${contestId}`,
+          data: { contestId, contestTitle: contest.title },
+          deduplicate: true,
+        })
+        .catch(() => {});
 
       return {
         registered: true,

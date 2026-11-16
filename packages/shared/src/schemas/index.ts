@@ -3,3 +3,4 @@ export * from './problem.schema.js';
 export * from './submission.schema.js';
 export * from './contest.schema.js';
 export * from './leaderboard.schema.js';
+export * from './notification.schema.js';

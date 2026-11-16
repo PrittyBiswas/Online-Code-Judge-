@@ -54,6 +54,8 @@ export class VerdictHandler {
     // 2. Publish live SSE event via Redis Pub/Sub
     const event: SubmissionEvent = {
       submissionId,
+      userId,
+      contestId,
       status: finalVerdict,
       verdict: finalVerdict,
       failedTestIndex: evaluation.failedTestIndex,

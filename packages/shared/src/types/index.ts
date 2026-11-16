@@ -153,6 +153,8 @@ export interface SampleRunResult {
 
 export interface SubmissionEvent {
   submissionId: string;
+  userId?: string;
+  contestId?: string;
   status: SubmissionStatus | Verdict;
   verdict?: Verdict;
   failedTestIndex?: number;
@@ -263,4 +265,58 @@ export interface ApiResponse<T = any> {
     message: string;
     details?: any;
   };
+}
+
+export type NotificationType =
+  | 'CONTEST_REGISTERED'
+  | 'CONTEST_APPROACHING'
+  | 'CONTEST_STARTED'
+  | 'CONTEST_SUBMISSION_VERDICT'
+  | 'CONTEST_ENDING_SOON'
+  | 'CONTEST_ENDED';
+
+export const NOTIFICATION_TYPES: NotificationType[] = [
+  'CONTEST_REGISTERED',
+  'CONTEST_APPROACHING',
+  'CONTEST_STARTED',
+  'CONTEST_SUBMISSION_VERDICT',
+  'CONTEST_ENDING_SOON',
+  'CONTEST_ENDED',
+];
+
+export interface Notification<TData = Record<string, any>> {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data: TData;
+  idempotencyKey?: string | null;
+  isRead: boolean;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface NotificationActivityItem {
+  id: string;
+  activityType: 'REGISTRATION' | 'SUBMISSION' | 'NOTIFICATION';
+  title: string;
+  description: string;
+  timestamp: string;
+  contestId?: string;
+  contestTitle?: string;
+  problemId?: string;
+  problemTitle?: string;
+  verdict?: Verdict;
+  metadata?: Record<string, any>;
+}
+
+export interface UnreadNotificationCountResponse {
+  unreadCount: number;
+}
+
+export interface NotificationLiveEvent {
+  userId: string;
+  notification: Notification;
+  timestamp: number;
 }

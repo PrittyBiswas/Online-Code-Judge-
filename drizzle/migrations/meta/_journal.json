@@ -43,6 +43,20 @@
       "when": 1794610000000,
       "tag": "0005_add_submission_contest_id",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794620000000,
+      "tag": "0006_add_notifications_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794630000000,
+      "tag": "0007_add_notifications_idempotency_and_contest_ended",
+      "breakpoints": true
     }
   ]
 }

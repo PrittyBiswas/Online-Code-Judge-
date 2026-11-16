@@ -11,6 +11,7 @@ import {
   unique,
   primaryKey,
   check,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -134,6 +135,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   submissions: many(submissions),
   contestsCreated: many(contests),
   contestParticipations: many(contestParticipants),
+  notifications: many(notifications),
 }));
 
 export const problemsRelations = relations(problems, ({ one, many }) => ({
@@ -269,6 +271,44 @@ export const contestParticipantsRelations = relations(contestParticipants, ({ on
   }),
 }));
 
+/**
+ * 8. Notifications table — contest and submission notifications for participants.
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 50 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    message: text('message').notNull(),
+    data: jsonb('data').default(sql`'{}'::jsonb`),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
+    isRead: boolean('is_read').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('uq_notifications_user_idempotency').on(table.userId, table.idempotencyKey),
+    index('idx_notifications_user_unread').on(table.userId, table.isRead, table.createdAt),
+    index('idx_notifications_user_created').on(table.userId, table.createdAt),
+    index('idx_notifications_user_idempotency').on(table.userId, table.idempotencyKey),
+    check(
+      'chk_notifications_type',
+      sql`${table.type} IN ('CONTEST_REGISTERED', 'CONTEST_APPROACHING', 'CONTEST_STARTED', 'CONTEST_SUBMISSION_VERDICT', 'CONTEST_ENDING_SOON', 'CONTEST_ENDED')`
+    ),
+  ]
+);
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+}));
+
 export type UserRecord = typeof users.$inferSelect;
 export type NewUserRecord = typeof users.$inferInsert;
 export type ProblemRecord = typeof problems.$inferSelect;
@@ -283,3 +323,5 @@ export type ContestProblemRecord = typeof contestProblems.$inferSelect;
 export type NewContestProblemRecord = typeof contestProblems.$inferInsert;
 export type ContestParticipantRecord = typeof contestParticipants.$inferSelect;
 export type NewContestParticipantRecord = typeof contestParticipants.$inferInsert;
+export type NotificationRecord = typeof notifications.$inferSelect;
+export type NewNotificationRecord = typeof notifications.$inferInsert;

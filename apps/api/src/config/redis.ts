@@ -4,7 +4,7 @@ import { logger } from '../utils/logger.js';
 
 let isRedisConnected = false;
 
-// Primary Redis client for application caches, rate limits, sorted sets
+// Primary Redis client for application caches, rate limits, sorted sets, and publishing
 export const redisClient = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
@@ -14,6 +14,7 @@ export const redisClient = new Redis(env.REDIS_URL, {
     return delay;
   },
 });
+export const redisPublisher = redisClient;
 
 redisClient.on('connect', () => {
   isRedisConnected = true;

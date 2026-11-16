@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Code2, LogOut, Terminal } from 'lucide-react';
 import { APP_INFO } from '@judge/shared';
 import { useAuth } from '../context/AuthContext';
+import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   apiStatus: 'loading' | 'online' | 'offline';
@@ -93,6 +94,7 @@ export function Header({ apiStatus }: HeaderProps) {
               >
                 Dashboard
               </Link>
+              <NotificationBell />
               <span className="text-xs text-slate-400">
                 Signed in as <strong className="text-slate-200">{user.username}</strong>
               </span>

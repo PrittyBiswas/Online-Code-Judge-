@@ -1,10 +1,15 @@
 import { Router } from 'express';
 import { contestsController } from './contests.controller.js';
+import { notificationsController } from '../notifications/notifications.controller.js';
 import { requireAuth, optionalAuth } from '../../middleware/auth.js';
 import { requireRole } from '../../middleware/rbac.js';
 import { Role } from '@judge/shared';
 
 const router = Router();
+
+router.get('/activity', requireAuth, (req, res, next) =>
+  notificationsController.getActivity(req, res, next)
+);
 
 router.get('/', optionalAuth, (req, res, next) => contestsController.list(req, res, next));
 router.get('/:id', optionalAuth, (req, res, next) => contestsController.getOne(req, res, next));

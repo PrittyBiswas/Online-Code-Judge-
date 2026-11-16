@@ -3,11 +3,21 @@ import { eq } from 'drizzle-orm';
 import { redisSubscriber } from '../config/redis.js';
 import { db } from '../db/index.js';
 import { contests } from '../db/schema.js';
-import { ERROR_CODES, REDIS_KEYS, Role, LeaderboardEntry, ContestUpdateEvent } from '@judge/shared';
+import {
+  ERROR_CODES,
+  REDIS_KEYS,
+  Role,
+  LeaderboardEntry,
+  ContestUpdateEvent,
+  Notification,
+  NotificationLiveEvent,
+  SubmissionEvent,
+} from '@judge/shared';
 import { logger } from '../utils/logger.js';
 import { isUuid } from '../utils/db-error.js';
 import { AppError } from '../utils/app-error.js';
 import { contestsService } from '../modules/contests/contests.service.js';
+import { notificationsService } from '../modules/notifications/notifications.service.js';
 
 export interface ContestSSEClient {
   id: string;
@@ -21,6 +31,7 @@ export interface ContestSSEClient {
 
 export class ContestSSEManager {
   private clients = new Map<string, Set<ContestSSEClient>>();
+  private userClients = new Map<string, Set<Response>>();
   private isSubscribed = false;
 
   constructor() {
@@ -36,14 +47,22 @@ export class ContestSSEManager {
   private subscribeToEvents() {
     try {
       if (typeof redisSubscriber.subscribe === 'function') {
-        redisSubscriber.subscribe(REDIS_KEYS.CHANNEL_CONTEST_UPDATES, (err) => {
-          if (err) {
-            logger.warn({ err: err.message }, 'Failed to subscribe to Redis contest updates');
-          } else {
-            this.isSubscribed = true;
-            logger.info('Subscribed to Redis contest updates pub/sub channel (Day 19)');
+        redisSubscriber.subscribe(
+          REDIS_KEYS.CHANNEL_CONTEST_UPDATES,
+          REDIS_KEYS.CHANNEL_NOTIFICATION_EVENTS,
+          REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS,
+          (err) => {
+            if (err) {
+              logger.warn(
+                { err: err.message },
+                'Failed to subscribe to Redis contest/notification updates'
+              );
+            } else {
+              this.isSubscribed = true;
+              logger.info('Subscribed to Redis contest & notification pub/sub channels (Day 20)');
+            }
           }
-        });
+        );
       }
     } catch {}
   }
@@ -60,6 +79,15 @@ export class ContestSSEManager {
         }
       }
     }
+    for (const group of this.userClients.values()) {
+      for (const res of Array.from(group)) {
+        try {
+          res.write('event: error\ndata: {"message":"Live stream disconnected"}\n\n');
+          res.end();
+        } catch {}
+      }
+    }
+    this.userClients.clear();
   }
 
   private setupRedisSubscriber() {
@@ -72,6 +100,26 @@ export class ContestSSEManager {
             await this.broadcastContestUpdate(parsed.contestId);
           } catch (err: any) {
             logger.warn({ err: err?.message }, 'Failed to parse incoming contest update event');
+          }
+        } else if (channel === REDIS_KEYS.CHANNEL_NOTIFICATION_EVENTS) {
+          try {
+            const parsed = JSON.parse(message) as NotificationLiveEvent;
+            if (!parsed || !parsed.userId || !parsed.notification) return;
+            this.broadcastNotification(parsed.userId, parsed.notification);
+          } catch (err: any) {
+            logger.warn({ err: err?.message }, 'Failed to parse incoming notification event');
+          }
+        } else if (channel === REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS) {
+          try {
+            const parsed = JSON.parse(message) as SubmissionEvent;
+            if (parsed && parsed.contestId && parsed.userId && parsed.verdict) {
+              await notificationsService.handleSubmissionVerdict(parsed);
+            }
+          } catch (err: any) {
+            logger.warn(
+              { err: err?.message },
+              'Failed to process submission event for notification'
+            );
           }
         }
       });
@@ -257,6 +305,99 @@ export class ContestSSEManager {
       );
       cleanup();
       return;
+    }
+
+    // Keepalive heartbeat every 15s
+    interval = setInterval(() => {
+      if (cleanedUp) return;
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        cleanup();
+      }
+    }, 15000);
+  }
+
+  public registerUserClient(userId: string, res: Response): () => void {
+    let group = this.userClients.get(userId);
+    if (!group) {
+      group = new Set();
+      this.userClients.set(userId, group);
+    }
+    group.add(res);
+
+    return () => {
+      const g = this.userClients.get(userId);
+      if (g) {
+        g.delete(res);
+        if (g.size === 0) {
+          this.userClients.delete(userId);
+        }
+      }
+    };
+  }
+
+  public broadcastNotification(userId: string, notification: Notification): void {
+    const group = this.userClients.get(userId);
+    if (!group || group.size === 0) return;
+
+    const payload = `event: notification\ndata: ${JSON.stringify(notification)}\n\n`;
+    for (const res of Array.from(group)) {
+      try {
+        res.write(payload);
+      } catch {
+        group.delete(res);
+      }
+    }
+  }
+
+  public async handleNotificationStream(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    const userId = req.user?.id;
+    if (!userId) {
+      return next(new AppError(ERROR_CODES.AUTH_UNAUTHORIZED, 'Authentication required', 401));
+    }
+
+    this.ensureSubscribed();
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
+    res.write(': connected\n\n');
+
+    let interval: NodeJS.Timeout | null = null;
+    let cleanedUp = false;
+
+    const unregister = this.registerUserClient(userId, res);
+
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+      unregister();
+    };
+
+    req.on('close', cleanup);
+    res.on('close', cleanup);
+
+    // Send initial unread count
+    try {
+      const { unreadCount } = await notificationsService.getUnreadCount(userId);
+      res.write(`event: unread_count\ndata: ${JSON.stringify({ unreadCount })}\n\n`);
+    } catch (err: any) {
+      logger.warn({ err: err?.message, userId }, 'Failed sending initial unread count snapshot');
     }
 
     // Keepalive heartbeat every 15s
