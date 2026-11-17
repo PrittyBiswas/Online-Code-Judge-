@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared package declarations
+        run: pnpm build:shared
+
       - name: Code formatting check
         run: pnpm format:check
 
@@ -55,6 +58,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build shared package declarations
+        run: pnpm build:shared
 
       - name: Run unit test suite
         run: pnpm test
@@ -129,6 +135,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared package declarations
+        run: pnpm build:shared
+
       - name: Start MinIO service & setup testcases bucket
         run: |
           docker run -d --name minio --network host \
@@ -138,7 +147,7 @@ jobs:
             server /data --console-address ":9001"
 
           for i in $(seq 1 30); do
-            if docker run --rm --network host pgsty/silo:RELEASE.2026-11-09T00-00-00Z silo healthcheck ready >/dev/null 2>&1; then
+            if docker exec minio silo healthcheck ready >/dev/null 2>&1 || curl -s -f http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
               echo "MinIO is ready"
               break
             fi
@@ -146,9 +155,9 @@ jobs:
             sleep 1
           done
 
-          docker run --rm --network host pgsty/mc:RELEASE.2026-11-09T00-00-00Z \
-            alias set local http://localhost:9000 minioadmin minioadmin
-          docker run --rm --network host pgsty/mc:RELEASE.2026-11-09T00-00-00Z \
+          docker run --rm --network host \
+            -e MC_HOST_local=http://minioadmin:minioadmin@127.0.0.1:9000 \
+            pgsty/mc:RELEASE.2026-11-09T00-00-00Z \
             mb --ignore-existing local/judge-testcases
 
       - name: Run database migrations
