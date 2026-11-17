@@ -10,6 +10,8 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { SubmissionHistoryPage } from './pages/SubmissionHistoryPage';
+import { SubmissionDetailsPage } from './pages/SubmissionDetailsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { useHealthCheck } from './hooks/useHealthCheck';
@@ -32,6 +34,8 @@ export function AppRoutes() {
 
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/submissions" element={<SubmissionHistoryPage />} />
+            <Route path="/submissions/:id" element={<SubmissionDetailsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
 

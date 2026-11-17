@@ -95,6 +95,12 @@ export function Header({ apiStatus: _apiStatus }: HeaderProps) {
               >
                 Dashboard
               </Link>
+              <Link
+                to="/submissions"
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              >
+                Submissions
+              </Link>
               <NotificationBell />
               <Link
                 to="/profile"

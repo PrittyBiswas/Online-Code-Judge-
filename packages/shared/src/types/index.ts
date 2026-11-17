@@ -144,8 +144,12 @@ export interface TestCaseResult {
 export interface Submission {
   id: string;
   problemId: string;
+  problemTitle?: string;
+  problemSlug?: string;
+  problemDifficulty?: ProblemDifficulty;
   userId: string;
   contestId?: string | null;
+  contestTitle?: string;
   code: string;
   language: SupportedLanguage;
   status: SubmissionStatus;
@@ -157,6 +161,41 @@ export interface Submission {
   retryCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SubmissionSummary {
+  id: string;
+  problemId: string;
+  problemTitle?: string;
+  problemSlug?: string;
+  problemDifficulty?: ProblemDifficulty;
+  userId: string;
+  contestId?: string | null;
+  contestTitle?: string;
+  language: SupportedLanguage;
+  status: SubmissionStatus;
+  verdict?: Verdict;
+  executionTimeMs?: number;
+  memoryUsedKb?: number;
+  failedTestIndex?: number;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubmissionPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface SubmissionListResponse {
+  items: SubmissionSummary[];
+  pagination: SubmissionPagination;
+  nextCursor?: string | null;
 }
 
 export interface SubmissionJobData {

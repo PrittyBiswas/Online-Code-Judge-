@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, Bell, ExternalLink, ShieldCheck, Trophy, User } from 'lucide-react';
+import { Activity, Bell, ExternalLink, History, ShieldCheck, Trophy, User } from 'lucide-react';
 import { Notification, NotificationActivityItem } from '@judge/shared';
 import { useAuth } from '../context/AuthContext';
 import { notificationsApi } from '../services/notificationsApi';
@@ -46,10 +46,19 @@ export function DashboardPage() {
             </div>
           </div>
 
-          <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Role: {user?.role}
-          </span>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/submissions"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:text-white"
+            >
+              <History className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Submission History</span>
+            </Link>
+            <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Role: {user?.role}
+            </span>
+          </div>
         </div>
       </section>
 
