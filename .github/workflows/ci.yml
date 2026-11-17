@@ -87,22 +87,6 @@ jobs:
           --health-timeout 3s
           --health-retries 5
 
-      minio:
-        image: pgsty/silo:RELEASE.2026-11-09T00-00-00Z
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "silo healthcheck ready"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 5
-        entrypoint: sh
-        args: -c 'minio server /data --console-address ":9001"'
-
     env:
       NODE_ENV: test
       PORT: 4000
@@ -145,10 +129,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup MinIO testcases bucket
+      - name: Start MinIO service & setup testcases bucket
         run: |
+          docker run -d --name minio --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            pgsty/silo:RELEASE.2026-11-09T00-00-00Z \
+            server /data --console-address ":9001"
+
+          for i in $(seq 1 30); do
+            if docker run --rm --network host pgsty/silo:RELEASE.2026-11-09T00-00-00Z silo healthcheck ready >/dev/null 2>&1; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO..."
+            sleep 1
+          done
+
           docker run --rm --network host pgsty/mc:RELEASE.2026-11-09T00-00-00Z \
-            alias set local http://localhost:9000 minioadmin minioadmin && \
+            alias set local http://localhost:9000 minioadmin minioadmin
           docker run --rm --network host pgsty/mc:RELEASE.2026-11-09T00-00-00Z \
             mb --ignore-existing local/judge-testcases
 
