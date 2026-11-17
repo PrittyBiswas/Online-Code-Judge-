@@ -385,6 +385,13 @@ function forceRemoveContainer(containerName: string): Promise<void> {
         ) {
           logger.warn({ containerName, err: msg }, 'Container cleanup command failed');
         }
+        if (msg.includes('is already in progress') || msg.includes('removal of container')) {
+          setTimeout(() => {
+            workerLifecycle.unregisterContainer(containerName);
+            done();
+          }, 300);
+          return;
+        }
       }
       workerLifecycle.unregisterContainer(containerName);
       done();

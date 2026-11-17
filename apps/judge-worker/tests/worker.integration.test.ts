@@ -30,6 +30,16 @@ function execDocker(args: string[]): Promise<string> {
   });
 }
 
+async function getLeftoverContainers(): Promise<string> {
+  let leftover = '';
+  for (let i = 0; i < 15; i++) {
+    leftover = await execDocker(['ps', '-a', '-q', '--filter', 'name=judge-sandbox-']);
+    if (!leftover) return '';
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return leftover;
+}
+
 describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–8)', () => {
   const runTag = `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const createdKeys: string[] = [];
@@ -162,13 +172,7 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–8)', () =>
     });
     expect(tle.verdict).toBe(Verdict.TIME_LIMIT_EXCEEDED);
 
-    const leftoverContainers = await execDocker([
-      'ps',
-      '-a',
-      '-q',
-      '--filter',
-      'name=judge-sandbox-',
-    ]);
+    const leftoverContainers = await getLeftoverContainers();
     expect(leftoverContainers).toBe('');
   }, 45000);
 
@@ -279,13 +283,7 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–8)', () =>
     });
     expect([Verdict.MEMORY_LIMIT_EXCEEDED, Verdict.RUNTIME_ERROR]).toContain(oom.verdict);
 
-    const leftoverContainers = await execDocker([
-      'ps',
-      '-a',
-      '-q',
-      '--filter',
-      'name=judge-sandbox-',
-    ]);
+    const leftoverContainers = await getLeftoverContainers();
     expect(leftoverContainers).toBe('');
   }, 30000);
 
@@ -527,13 +525,7 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–8)', () =>
     });
     expect([Verdict.RUNTIME_ERROR, Verdict.TIME_LIMIT_EXCEEDED]).toContain(forkRes.verdict);
 
-    const leftoverContainers = await execDocker([
-      'ps',
-      '-a',
-      '-q',
-      '--filter',
-      'name=judge-sandbox-',
-    ]);
+    const leftoverContainers = await getLeftoverContainers();
     expect(leftoverContainers).toBe('');
   }, 45000);
 
