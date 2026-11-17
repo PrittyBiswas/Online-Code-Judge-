@@ -30,23 +30,9 @@ import type {
   SubmissionEvent,
   SupportedLanguage,
 } from '../types';
+import { STARTER_CODE as SHARED_STARTER_CODE } from '@judge/shared';
 
-export const STARTER_CODE: Record<SupportedLanguage, string> = {
-  javascript: [
-    "const fs = require('fs');",
-    "const input = fs.readFileSync(0, 'utf8').trim();",
-    '',
-    '// Write your solution here and print output with console.log',
-    'console.log(input);',
-  ].join('\n'),
-  python: [
-    'import sys',
-    '',
-    'data = sys.stdin.read().strip()',
-    '# Write your solution here and print output with print()',
-    'print(data)',
-  ].join('\n'),
-};
+export const STARTER_CODE: Record<SupportedLanguage, string> = SHARED_STARTER_CODE;
 
 const OUTCOME_META: Record<
   SampleRunOutcome,
@@ -169,8 +155,7 @@ export function SampleRunnerPanel({
 
   const [language, setLanguage] = useState<SupportedLanguage>('javascript');
   const [codeByLang, setCodeByLang] = useState<Record<SupportedLanguage, string>>({
-    javascript: STARTER_CODE.javascript,
-    python: STARTER_CODE.python,
+    ...STARTER_CODE,
   });
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
@@ -663,6 +648,11 @@ export function SampleRunnerPanel({
           >
             <option value="javascript">JavaScript (Node 20)</option>
             <option value="python">Python (3.11)</option>
+            <option value="c">C (GCC 13)</option>
+            <option value="cpp">C++ (G++ 13)</option>
+            <option value="java">Java (OpenJDK 21)</option>
+            <option value="go">Go (1.22)</option>
+            <option value="rust">Rust (1.77)</option>
           </select>
 
           <button

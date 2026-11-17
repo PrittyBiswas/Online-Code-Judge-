@@ -5,6 +5,12 @@ import { Verdict, SupportedLanguage } from '@judge/shared';
 import { workerEnv } from '../config/env.js';
 import { workerLifecycle } from '../recovery/shutdown.js';
 import type { WorkerFailureCategory } from '../utils/errors.js';
+import {
+  buildCompiledRunnerScript,
+  formatCompiledStdinPayload,
+  getDefaultImageForLanguage,
+  isCompiledLanguage,
+} from './compilers.js';
 
 const logger = pino({
   level: workerEnv.LOG_LEVEL,
@@ -122,14 +128,48 @@ export function buildDockerArgs(options: {
   cpus: string;
   pidsLimit: number;
   image?: string;
+  code?: string;
 }): string[] {
-  const { containerName, language, memoryLimitMb, cpus, pidsLimit, image } = options;
-  const targetImage =
-    image ||
-    (language === 'python' ? workerEnv.SANDBOX_PYTHON_IMAGE : workerEnv.SANDBOX_DOCKER_IMAGE);
+  const { containerName, language, memoryLimitMb, cpus, pidsLimit, image, code } = options;
 
-  const entrypointCmd =
-    language === 'python' ? ['python3', '-I', '-c', PY_BOOTSTRAP] : ['node', '-e', JS_BOOTSTRAP];
+  if (language === 'javascript' || language === 'python') {
+    const targetImage =
+      image ||
+      (language === 'python' ? workerEnv.SANDBOX_PYTHON_IMAGE : workerEnv.SANDBOX_DOCKER_IMAGE);
+
+    const entrypointCmd =
+      language === 'python' ? ['python3', '-I', '-c', PY_BOOTSTRAP] : ['node', '-e', JS_BOOTSTRAP];
+
+    return [
+      'run',
+      '--name',
+      containerName,
+      '--rm',
+      '--network',
+      'none',
+      `--memory=${memoryLimitMb}m`,
+      `--memory-swap=${memoryLimitMb}m`,
+      `--cpus=${cpus}`,
+      `--pids-limit=${pidsLimit}`,
+      '--read-only',
+      '--tmpfs',
+      '/tmp:rw,noexec,nosuid,size=16m',
+      '--cap-drop',
+      'ALL',
+      '--security-opt',
+      'no-new-privileges',
+      '--sysctl',
+      'net.ipv4.ip_unprivileged_port_start=1024',
+      '--user',
+      '1000:1000',
+      '-i',
+      targetImage,
+      ...entrypointCmd,
+    ];
+  }
+
+  const targetImage = image || getDefaultImageForLanguage(language);
+  const runnerScript = buildCompiledRunnerScript(language, memoryLimitMb, code);
 
   return [
     'run',
@@ -145,6 +185,8 @@ export function buildDockerArgs(options: {
     '--read-only',
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,size=16m',
+    '--tmpfs',
+    '/sandbox:rw,exec,nosuid,size=64m,uid=1000,gid=1000,mode=0700',
     '--cap-drop',
     'ALL',
     '--security-opt',
@@ -153,9 +195,13 @@ export function buildDockerArgs(options: {
     'net.ipv4.ip_unprivileged_port_start=1024',
     '--user',
     '1000:1000',
+    '-w',
+    '/sandbox',
     '-i',
     targetImage,
-    ...entrypointCmd,
+    'sh',
+    '-c',
+    runnerScript,
   ];
 }
 
@@ -356,6 +402,7 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
     cpus,
     pidsLimit,
     image,
+    code,
   });
 
   workerLifecycle.registerContainer(containerName);
@@ -455,7 +502,10 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
 
     if (child.stdin) {
       child.stdin.on('error', () => {});
-      child.stdin.end(JSON.stringify({ code, input }));
+      const payload = isCompiledLanguage(language)
+        ? formatCompiledStdinPayload(code, input)
+        : JSON.stringify({ code, input });
+      child.stdin.end(payload);
     }
   });
 }

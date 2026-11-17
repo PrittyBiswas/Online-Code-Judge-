@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { getTableName, getTableColumns } from 'drizzle-orm';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { users, problems, testCases, submissions } from '../src/db/schema.js';
+import { users, problems, testCases, submissions, userProfiles } from '../src/db/schema.js';
 import { pool, checkDatabaseConnection } from '../src/db/index.js';
 
 describe('Day 4 Drizzle ORM Schema & Connection Safety', () => {
@@ -11,6 +11,7 @@ describe('Day 4 Drizzle ORM Schema & Connection Safety', () => {
     expect(getTableName(problems)).toBe('problems');
     expect(getTableName(testCases)).toBe('test_cases');
     expect(getTableName(submissions)).toBe('submissions');
+    expect(getTableName(userProfiles)).toBe('user_profiles');
 
     expect(Object.keys(getTableColumns(users))).toEqual(
       expect.arrayContaining([
@@ -46,6 +47,29 @@ describe('Day 4 Drizzle ORM Schema & Connection Safety', () => {
     );
     expect(Object.keys(getTableColumns(submissions))).toEqual(
       expect.arrayContaining(['id', 'problemId', 'userId', 'code', 'language', 'status', 'verdict'])
+    );
+    expect(Object.keys(getTableColumns(userProfiles))).toEqual(
+      expect.arrayContaining([
+        'id',
+        'userId',
+        'fullName',
+        'phoneNumber',
+        'avatarUrl',
+        'avatarKey',
+        'bio',
+        'country',
+        'state',
+        'city',
+        'education',
+        'college',
+        'degree',
+        'skills',
+        'githubUrl',
+        'linkedinUrl',
+        'portfolioUrl',
+        'createdAt',
+        'updatedAt',
+      ])
     );
   });
 

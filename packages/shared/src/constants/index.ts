@@ -66,6 +66,7 @@ export const ERROR_CODES = {
   AUTH_UNAUTHORIZED: 'AUTH_UNAUTHORIZED',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
+  CONFLICT: 'CONFLICT',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
   DOUBLE_SUBMIT_GUARD: 'DOUBLE_SUBMIT_GUARD',
@@ -76,3 +77,5 @@ export const ERROR_CODES = {
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
+
+export * from './languages.js';

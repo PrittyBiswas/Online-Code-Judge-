@@ -71,6 +71,11 @@ const envSchema = z.object({
   SANDBOX_OUTPUT_LIMIT_BYTES: z.coerce.number().int().min(1024).max(1048576).default(65536),
   SANDBOX_DOCKER_IMAGE: z.string().default('node:20-alpine'),
   SANDBOX_PYTHON_IMAGE: z.string().default('python:3.11-alpine'),
+  SANDBOX_C_IMAGE: z.string().default('gcc:13-alpine'),
+  SANDBOX_CPP_IMAGE: z.string().default('gcc:13-alpine'),
+  SANDBOX_JAVA_IMAGE: z.string().default('eclipse-temurin:21-alpine'),
+  SANDBOX_GO_IMAGE: z.string().default('golang:1.22-alpine'),
+  SANDBOX_RUST_IMAGE: z.string().default('rust:1.77-alpine'),
 });
 
 export type WorkerEnvConfig = z.infer<typeof envSchema>;

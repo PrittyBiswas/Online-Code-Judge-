@@ -101,7 +101,7 @@ describe('Shared Schema Validations', () => {
         createSubmissionSchema.safeParse({
           problemId: '123e4567-e89b-12d3-a456-426614174000',
           code: 'print(1)',
-          language: 'cpp',
+          language: 'cobol',
         }).success
       ).toBe(false);
 

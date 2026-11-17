@@ -32,7 +32,17 @@ export enum ProblemVisibility {
   CONTEST_ONLY = 'contest_only',
 }
 
-export type SupportedLanguage = 'javascript' | 'python';
+export const SUPPORTED_LANGUAGES = [
+  'javascript',
+  'python',
+  'c',
+  'cpp',
+  'java',
+  'go',
+  'rust',
+] as const;
+
+export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export interface User {
   id: string;
@@ -41,6 +51,52 @@ export interface User {
   role: Role;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UserProfile {
+  id: string;
+  role: Role;
+  createdAt: string;
+  updatedAt: string;
+  emailVerified: boolean;
+  accountStatus: 'active' | 'suspended';
+
+  username: string;
+  email: string;
+  fullName: string | null;
+  phoneNumber: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+
+  education: string | null;
+  college: string | null;
+  degree: string | null;
+  skills: string[];
+  githubUrl: string | null;
+  linkedinUrl: string | null;
+  portfolioUrl: string | null;
+}
+
+export interface UpdateUserProfileInput {
+  username?: string;
+  email?: string;
+  fullName?: string | null;
+  phoneNumber?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
+  education?: string | null;
+  college?: string | null;
+  degree?: string | null;
+  skills?: string[];
+  githubUrl?: string | null;
+  linkedinUrl?: string | null;
+  portfolioUrl?: string | null;
 }
 
 export interface Problem {

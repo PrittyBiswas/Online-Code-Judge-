@@ -6,6 +6,7 @@ import {
   SubmissionEvent,
   SubmissionJobData,
   SubmissionStatus,
+  SUPPORTED_LANGUAGES,
   SupportedLanguage,
   Verdict,
 } from '@judge/shared';
@@ -370,7 +371,7 @@ export async function processSubmissionJob(
       });
     }
 
-    if (claimed.language !== 'javascript' && claimed.language !== 'python') {
+    if (!SUPPORTED_LANGUAGES.includes(claimed.language as SupportedLanguage)) {
       return await failPermanentlyWithInternalError({
         submissionId,
         problemId: claimed.problemId,

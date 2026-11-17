@@ -1155,7 +1155,7 @@ describe('Judge Engine Edge Cases & Malformed Input Unit Tests (Day 8)', () => {
       getSubmissionById: vi.fn().mockResolvedValue(submission),
       claimSubmissionRunning: vi.fn().mockResolvedValue({
         ...submission,
-        language: 'rust',
+        language: 'cobol' as any,
         status: SubmissionStatus.RUNNING,
       }),
       getProblemById: vi.fn().mockResolvedValue(problem),

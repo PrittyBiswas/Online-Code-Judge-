@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests/worker-unit.test.ts",
+    "test": "vitest run tests/worker-unit.test.ts tests/multi-language.test.ts",
     "test:integration": "vitest run tests/worker.integration.test.ts",
     "test:safety": "vitest run tests/safety-suite.integration.test.ts",
     "test:sandbox": "tsx src/sandbox/demo.ts"

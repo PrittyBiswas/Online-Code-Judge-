@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, Server, Layers, Cpu, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { APP_INFO } from '@judge/shared';
 import type { HealthStatusResponse, PlatformFeature } from '../types';
 import { cn } from '../utils/cn';
 
 interface HomePageProps {
-  apiStatus: 'loading' | 'online' | 'offline';
-  healthData: HealthStatusResponse | null;
+  apiStatus?: 'loading' | 'online' | 'offline';
+  healthData?: HealthStatusResponse | null;
 }
 
 const features: PlatformFeature[] = [
@@ -33,14 +33,14 @@ const features: PlatformFeature[] = [
   },
 ];
 
-export function HomePage({ apiStatus, healthData }: HomePageProps) {
+export function HomePage({ apiStatus: _apiStatus, healthData: _healthData }: HomePageProps) {
   return (
     <div className="space-y-10">
       <section className="space-y-4 text-center sm:text-left">
-        <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-300">
+        {/* <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-300">
           <Layers className="h-3.5 w-3.5" />
           Day 2 Foundation Ready
-        </div>
+        </div> */}
         <h1 className="text-3xl font-bold tracking-tight text-white sm:text-5xl">
           {APP_INFO.NAME}
         </h1>
@@ -83,7 +83,7 @@ export function HomePage({ apiStatus, healthData }: HomePageProps) {
         ))}
       </section>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+      {/* <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-indigo-400">
@@ -115,7 +115,7 @@ export function HomePage({ apiStatus, healthData }: HomePageProps) {
             )}
           </div>
         </div>
-      </section>
+      </section> */}
     </div>
   );
 }

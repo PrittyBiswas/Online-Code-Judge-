@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LIMITS } from '../constants/index.js';
+import { SUPPORTED_LANGUAGES } from '../types/index.js';
 
 export const createSubmissionSchema = z.object({
   problemId: z.string().uuid('Invalid problem ID format'),
@@ -9,7 +10,7 @@ export const createSubmissionSchema = z.object({
     .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES, {
       message: `Code size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
     }),
-  language: z.enum(['javascript', 'python']).default('javascript'),
+  language: z.enum(SUPPORTED_LANGUAGES).default('javascript'),
   contestId: z.string().uuid('Invalid contest ID format').optional(),
 });
 
@@ -22,7 +23,7 @@ export const runSampleSchema = z
       .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES, {
         message: `Code size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
       }),
-    language: z.enum(['javascript', 'python']).default('javascript'),
+    language: z.enum(SUPPORTED_LANGUAGES).default('javascript'),
     contestId: z.string().uuid('Invalid contest ID format').optional(),
   })
   .strict();

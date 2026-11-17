@@ -130,7 +130,7 @@ export class SubmissionsService {
       await db
         .delete(submissions)
         .where(eq(submissions.id, createdSubmission.id))
-        .catch(() => { });
+        .catch(() => {});
       throw new AppError(
         ERROR_CODES.INTERNAL_ERROR,
         'Submission queue is temporarily unavailable.',
@@ -173,7 +173,7 @@ export class SubmissionsService {
         await db
           .delete(submissions)
           .where(eq(submissions.id, createdSubmission.id))
-          .catch(() => { });
+          .catch(() => {});
         throw new AppError(
           ERROR_CODES.INTERNAL_ERROR,
           'Submission queue is temporarily unavailable.',
@@ -211,15 +211,15 @@ export class SubmissionsService {
 
     let problem:
       | {
-        id: string;
-        sampleInput: string;
-        sampleExpectedOutput: string;
-        timeLimitMs: number;
-        memoryLimitMb: number;
-        isArchived: boolean;
-        visibility: string;
-        setterId: string;
-      }
+          id: string;
+          sampleInput: string;
+          sampleExpectedOutput: string;
+          timeLimitMs: number;
+          memoryLimitMb: number;
+          isArchived: boolean;
+          visibility: string;
+          setterId: string;
+        }
       | undefined;
 
     try {
@@ -305,7 +305,7 @@ export class SubmissionsService {
         ),
       ]);
     } catch {
-      await redisClient.del(REDIS_KEYS.SAMPLE_RUN_JOB(runId)).catch(() => { });
+      await redisClient.del(REDIS_KEYS.SAMPLE_RUN_JOB(runId)).catch(() => {});
       throw new AppError(
         ERROR_CODES.INTERNAL_ERROR,
         'Sample execution service is temporarily unavailable.',

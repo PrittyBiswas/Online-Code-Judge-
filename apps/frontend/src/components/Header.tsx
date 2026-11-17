@@ -1,31 +1,31 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Code2, LogOut, Terminal } from 'lucide-react';
+import { Code2, LogOut, User } from 'lucide-react';
 import { APP_INFO } from '@judge/shared';
 import { useAuth } from '../context/AuthContext';
 import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
-  apiStatus: 'loading' | 'online' | 'offline';
+  apiStatus?: 'loading' | 'online' | 'offline';
 }
 
-export function Header({ apiStatus }: HeaderProps) {
+export function Header({ apiStatus: _apiStatus }: HeaderProps) {
   const { status, user, logout } = useAuth();
   const navigate = useNavigate();
   const [logoutWarning, setLogoutWarning] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const statusStyles = {
-    loading: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    online: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-    offline: 'bg-slate-700/40 text-slate-300 border-slate-600/40',
-  };
+  // const statusStyles = {
+  //   loading: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  //   online: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  //   offline: 'bg-slate-700/40 text-slate-300 border-slate-600/40',
+  // };
 
-  const statusLabels = {
-    loading: 'API: Checking...',
-    online: 'API: Online',
-    offline: 'API: Offline',
-  };
+  // const statusLabels = {
+  //   loading: 'API: Checking...',
+  //   online: 'API: Online',
+  //   offline: 'API: Offline',
+  // };
 
   async function handleLogout() {
     if (isLoggingOut) return;
@@ -51,9 +51,10 @@ export function Header({ apiStatus }: HeaderProps) {
           </div>
           <div>
             <span className="text-lg font-bold tracking-tight text-slate-100">{APP_INFO.NAME}</span>
-            <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
+
+            {/* <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
               v{APP_INFO.VERSION}
-            </span>
+            </span> */}
           </div>
         </Link>
 
@@ -79,12 +80,12 @@ export function Header({ apiStatus }: HeaderProps) {
             Leaderboard
           </Link>
 
-          <span
+          {/* <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${statusStyles[apiStatus]}`}
           >
             <Terminal className="h-3.5 w-3.5" />
             {statusLabels[apiStatus]}
-          </span>
+          </span> */}
 
           {status === 'authenticated' && user ? (
             <>
@@ -95,9 +96,14 @@ export function Header({ apiStatus }: HeaderProps) {
                 Dashboard
               </Link>
               <NotificationBell />
-              <span className="text-xs text-slate-400">
-                Signed in as <strong className="text-slate-200">{user.username}</strong>
-              </span>
+              <Link
+                to="/profile"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer"
+                title="Edit Profile"
+              >
+                <User className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Edit Profile</span>
+              </Link>
               <button
                 type="button"
                 onClick={() => void handleLogout()}

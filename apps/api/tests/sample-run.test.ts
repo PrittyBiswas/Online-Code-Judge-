@@ -201,7 +201,7 @@ describe('Day 14 — Sample Execution Backend & Security', () => {
 
     const badLang = await dispatchHttp('POST', '/api/submissions/run-sample', {
       headers: { Cookie: cookieA },
-      body: { problemId: PROBLEM_ID, code: 'fn main(){}', language: 'rust' },
+      body: { problemId: PROBLEM_ID, code: 'fn main(){}', language: 'cobol' },
     });
     expect(badLang.status).toBe(400);
 

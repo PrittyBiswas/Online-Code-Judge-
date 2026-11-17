@@ -10,6 +10,7 @@ import {
   SampleRunOutcome,
   SampleRunResult,
   SampleRunStatus,
+  SUPPORTED_LANGUAGES,
   Verdict,
 } from '@judge/shared';
 import { runInSandbox, SandboxExecutionResult, SandboxOptions } from '../sandbox/runner.js';
@@ -31,7 +32,7 @@ const sampleRunJobSchema = z
       .string()
       .min(1)
       .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES),
-    language: z.enum(['javascript', 'python']),
+    language: z.enum(SUPPORTED_LANGUAGES),
     sampleInput: z.string(),
     timeLimitMs: z.number().int().min(100).max(LIMITS.MAX_TIME_LIMIT_MS),
     memoryLimitMb: z.number().int().min(16).max(LIMITS.MAX_MEMORY_LIMIT_MB),

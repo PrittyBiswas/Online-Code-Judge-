@@ -332,7 +332,7 @@ describe('Submissions Service & Day 15 Official Submission API (AC-SJ-01, AC-SJ-
 
     const badLang = await dispatchHttp('POST', '/api/submissions', {
       headers: { Cookie: userCookie },
-      body: { problemId, code: 'fn main(){}', language: 'rust' },
+      body: { problemId, code: 'fn main(){}', language: 'cobol' },
     });
     expect(badLang.status).toBe(400);
 

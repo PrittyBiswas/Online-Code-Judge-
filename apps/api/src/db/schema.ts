@@ -130,7 +130,11 @@ export const submissions = pgTable(
   ]
 );
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
+  profile: one(userProfiles, {
+    fields: [users.id],
+    references: [userProfiles.userId],
+  }),
   authoredProblems: many(problems),
   submissions: many(submissions),
   contestsCreated: many(contests),
@@ -309,8 +313,52 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   }),
 }));
 
+/**
+ * 8. User profiles table — personal and professional account details.
+ */
+export const userProfiles = pgTable(
+  'user_profiles',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' })
+      .unique(),
+    fullName: varchar('full_name', { length: 100 }),
+    phoneNumber: varchar('phone_number', { length: 30 }),
+    avatarUrl: text('avatar_url'),
+    avatarKey: varchar('avatar_key', { length: 255 }),
+    bio: text('bio'),
+    country: varchar('country', { length: 100 }),
+    state: varchar('state', { length: 100 }),
+    city: varchar('city', { length: 100 }),
+    education: varchar('education', { length: 100 }),
+    college: varchar('college', { length: 255 }),
+    degree: varchar('degree', { length: 100 }),
+    skills: text('skills')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    githubUrl: varchar('github_url', { length: 255 }),
+    linkedinUrl: varchar('linkedin_url', { length: 255 }),
+    portfolioUrl: varchar('portfolio_url', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_user_profiles_user_id').on(table.userId)]
+);
+
+export const userProfilesRelations = relations(userProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [userProfiles.userId],
+    references: [users.id],
+  }),
+}));
+
 export type UserRecord = typeof users.$inferSelect;
 export type NewUserRecord = typeof users.$inferInsert;
+export type UserProfileRecord = typeof userProfiles.$inferSelect;
+export type NewUserProfileRecord = typeof userProfiles.$inferInsert;
 export type ProblemRecord = typeof problems.$inferSelect;
 export type NewProblemRecord = typeof problems.$inferInsert;
 export type TestCaseRecord = typeof testCases.$inferSelect;

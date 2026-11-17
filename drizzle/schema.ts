@@ -99,3 +99,25 @@ export interface NotificationRow {
   created_at: Date;
   read_at: Date | null;
 }
+
+export interface UserProfileRow {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  phone_number: string | null;
+  avatar_url: string | null;
+  avatar_key: string | null;
+  bio: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  education: string | null;
+  college: string | null;
+  degree: string | null;
+  skills: string[];
+  github_url: string | null;
+  linkedin_url: string | null;
+  portfolio_url: string | null;
+  created_at: Date;
+  updated_at: Date;
+}

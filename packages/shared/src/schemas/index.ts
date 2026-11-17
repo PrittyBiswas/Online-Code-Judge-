@@ -4,3 +4,4 @@ export * from './submission.schema.js';
 export * from './contest.schema.js';
 export * from './leaderboard.schema.js';
 export * from './notification.schema.js';
+export * from './user.schema.js';
