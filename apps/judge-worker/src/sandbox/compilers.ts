@@ -68,7 +68,7 @@ export const COMPILER_SPECS: Record<'c' | 'cpp' | 'java' | 'go' | 'rust', Compil
     language: 'java',
     isCompiled: true,
     defaultSourceFile: 'Main.java',
-    compileCommand: (src) => `javac -d /sandbox ${src}`,
+    compileCommand: (src) => `javac -J-Xms16m -J-Xmx128m -J-XX:+UseSerialGC -d /sandbox ${src}`,
     runCommand: (_bin, _mem, src) => {
       const className = src
         ? src
@@ -76,7 +76,7 @@ export const COMPILER_SPECS: Record<'c' | 'cpp' | 'java' | 'go' | 'rust', Compil
             .split('/')
             .pop() || 'Main'
         : 'Main';
-      return `java -Xms16m -XX:+UseSerialGC -cp /sandbox ${className}`;
+      return `java -Xms16m -Xmx128m -XX:+UseSerialGC -cp /sandbox ${className}`;
     },
     extraEnv: ['export HOME=/sandbox'],
   },
@@ -90,6 +90,10 @@ export const COMPILER_SPECS: Record<'c' | 'cpp' | 'java' | 'go' | 'rust', Compil
       'export HOME=/sandbox',
       'export GOCACHE=/sandbox/.cache',
       'export GOPATH=/sandbox/go',
+      'mkdir -p /sandbox/.tmp',
+      'export GOTMPDIR=/sandbox/.tmp',
+      'export GOMAXPROCS=1',
+      'export GOMEMLIMIT=350MiB',
     ],
   },
   rust: {
@@ -98,11 +102,7 @@ export const COMPILER_SPECS: Record<'c' | 'cpp' | 'java' | 'go' | 'rust', Compil
     defaultSourceFile: 'main.rs',
     compileCommand: (src, bin) => `rustc -O -o ${bin} ${src}`,
     runCommand: (bin) => `${bin}`,
-    extraEnv: [
-      'export HOME=/sandbox',
-      'export CARGO_HOME=/sandbox/.cargo',
-      'export RUSTUP_HOME=/sandbox/.rustup',
-    ],
+    extraEnv: ['export HOME=/sandbox', 'export CARGO_HOME=/sandbox/.cargo'],
   },
 };
 
