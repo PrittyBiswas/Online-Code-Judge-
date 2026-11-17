@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Search, X, RotateCcw } from 'lucide-react';
 
 export interface FilterValues {
@@ -13,6 +14,7 @@ interface SubmissionFiltersProps {
   onFilterChange: (key: keyof FilterValues, value: string) => void;
   onReset: () => void;
   isFiltered: boolean;
+  debounceMs?: number;
 }
 
 const VERDICT_OPTIONS = [
@@ -42,7 +44,27 @@ export function SubmissionFilters({
   onFilterChange,
   onReset,
   isFiltered,
+  debounceMs = 300,
 }: SubmissionFiltersProps) {
+  const [searchInput, setSearchInput] = useState(filters.search);
+
+  useEffect(() => {
+    setSearchInput(filters.search);
+  }, [filters.search]);
+
+  useEffect(() => {
+    if (searchInput === filters.search) return;
+    const timer = setTimeout(() => {
+      onFilterChange('search', searchInput);
+    }, debounceMs);
+    return () => clearTimeout(timer);
+  }, [searchInput, filters.search, onFilterChange, debounceMs]);
+
+  const handleClearSearch = () => {
+    setSearchInput('');
+    onFilterChange('search', '');
+  };
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 backdrop-blur-sm">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -52,15 +74,15 @@ export function SubmissionFilters({
           <input
             type="text"
             placeholder="Search problem or ID..."
-            value={filters.search}
-            onChange={(e) => onFilterChange('search', e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="w-full rounded-lg border border-slate-700 bg-slate-950 py-2 pl-9 pr-8 text-sm text-slate-100 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             aria-label="Search submissions"
           />
-          {filters.search && (
+          {searchInput && (
             <button
               type="button"
-              onClick={() => onFilterChange('search', '')}
+              onClick={handleClearSearch}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
               aria-label="Clear search"
             >

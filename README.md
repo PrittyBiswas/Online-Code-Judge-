@@ -1,6 +1,18 @@
 # Online Code Judge
 
-A local-first, full-stack Online Code Judge platform built with a **pnpm** + **TypeScript** monorepo. Users read problems, write JavaScript in the browser, submit solutions, and receive live verdicts (`ACCEPTED`, `WRONG_ANSWER`, `TIME_LIMIT_EXCEEDED`, etc.) executed inside isolated, throw-away Docker sandboxes.
+A modern, production-ready competitive programming and code execution platform built with a **TypeScript** + **pnpm** monorepo. Users read problems, solve challenges across **7 programming languages** (JavaScript, Python, C, C++, Java, Go, Rust) in an advanced three-panel Monaco workspace, run sample code or custom inputs, inspect submission histories, track their progress on an interactive analytics dashboard, and receive real-time execution verdicts streamed via Server-Sent Events (SSE) from isolated Docker execution sandboxes.
+
+---
+
+## Key Features
+
+- **Multi-Language Compiler & Sandbox**: Secure, isolated execution of JavaScript (Node 20), Python (3.11), C (GCC), C++ (G++), Java (OpenJDK), Go, and Rust inside non-root, read-only Docker containers with strict CPU, memory, PID, and network limits.
+- **Advanced Three-Panel Coding Workspace**: Resizable split panels for Problem Statement & Constraints, Monaco Code Editor with language switching and autosave draft recovery, and Sample Runner / Custom Input testcase panel.
+- **Persistent JSONB Test Case Results**: Full testcase tracking with hidden testcase sanitization and fail-fast evaluation.
+- **Submission History & Source Inspector**: Filter submissions by search (debounced 300ms), verdict, language, and date range; inspect source code with syntax highlighting, copy-to-clipboard, and metrics.
+- **Performance Analytics & Insights Dashboard**: Dedicated `/analytics` dashboard featuring accuracy gauges, difficulty progress bars (Easy/Medium/Hard), verdict and language distribution charts, 52-week activity calendar heatmap, and execution runtime trends.
+- **Live Leaderboard & Contests**: Real-time scoreboard with Redis sorted sets, penalty calculations, contest windows, and freeze period support.
+- **Production-Ready Infrastructure**: Multi-stage Docker production images, health probes (`/health/live`, `/health/ready`), Prometheus metrics, and automated GitHub Actions CI pipeline.
 
 ---
 

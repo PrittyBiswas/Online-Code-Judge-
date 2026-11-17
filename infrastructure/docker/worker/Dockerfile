@@ -19,7 +19,7 @@ COPY apps/judge-worker/package.json ./apps/judge-worker/
 RUN pnpm install --frozen-lockfile
 
 # Copy source code and build
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.base.json ./
 COPY packages/shared/ ./packages/shared/
 COPY apps/judge-worker/ ./apps/judge-worker/
 

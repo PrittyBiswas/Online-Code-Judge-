@@ -81,7 +81,7 @@ describe('Phase 4 — Frontend Submission History and Source Inspector Suite', (
   });
 
   describe('SubmissionFilters', () => {
-    it('renders all filter controls and fires onFilterChange', () => {
+    it('renders all filter controls and fires onFilterChange with 300ms debounce for search', async () => {
       const onFilterChange = vi.fn();
       const onReset = vi.fn();
 
@@ -96,7 +96,9 @@ describe('Phase 4 — Frontend Submission History and Source Inspector Suite', (
 
       const searchInput = screen.getByLabelText('Search submissions');
       fireEvent.change(searchInput, { target: { value: 'Two Sum' } });
-      expect(onFilterChange).toHaveBeenCalledWith('search', 'Two Sum');
+      await waitFor(() => {
+        expect(onFilterChange).toHaveBeenCalledWith('search', 'Two Sum');
+      });
 
       const verdictSelect = screen.getByLabelText('Filter by verdict');
       fireEvent.change(verdictSelect, { target: { value: 'AC' } });

@@ -1,168 +1,142 @@
-# Online Code Judge — System Architecture
+# Online Code Judge — Comprehensive Architecture Document
 
-This document describes the high-level and component architecture of the **Online Code Judge** platform, detailing system interactions, data flows, persistence models, and security boundaries.
+This document describes the complete system architecture, operational flows, data persistence, and security boundaries across all 6 development phases of the **Online Code Judge** platform.
 
 ---
 
-## 1. System Overview
+## 1. System Architecture Overview
 
-The platform is architected as an asynchronous, event-driven, local-first system designed for security, scalability, and deterministic code evaluation. It decouples high-throughput web traffic from compute-heavy, untrusted code evaluation using message queues, caching, and throwaway Docker execution sandboxes.
+The platform uses an event-driven, microservices-style topology designed for high availability, deterministic evaluation, and strict security isolation:
 
 ```mermaid
 flowchart TD
-    subgraph Client ["Client Layer"]
-        Browser["User Browser (React 18 + Vite SPA)"]
+    subgraph Client ["Client Presentation Tier"]
+        Browser["React 18 SPA (Monaco Editor, Tailwind CSS, SSE Client)"]
     end
 
-    subgraph Gateway ["Reverse Proxy & Ingress"]
-        Nginx["Nginx Reverse Proxy (Port 80/443)"]
+    subgraph Gateway ["Ingress & Reverse Proxy"]
+        Nginx["Nginx 1.27 Reverse Proxy (Port 80/443)"]
     end
 
-    subgraph Application ["Application Services"]
-        API["Backend API (@judge/api)<br/>Express + TypeScript"]
+    subgraph Services ["Application Services"]
+        API["Backend API (@judge/api)<br/>Express + TypeScript + Drizzle"]
         Worker["Judge Worker (@judge/worker)<br/>Node.js + BullMQ Consumer"]
-        Cron["Cron Service (@judge/cron)<br/>Scheduled Maintenance"]
+        Cron["Cron Service (@judge/cron)<br/>Scheduled Maintenance & Cleanup"]
     end
 
-    subgraph Data ["Data & Storage Layer"]
-        Postgres[("PostgreSQL 16<br/>Drizzle ORM Relational DB")]
-        Redis[("Redis 7<br/>BullMQ Queues, Caches, Pub/Sub, Locks")]
-        MinIO[("MinIO / Silo<br/>S3-Compatible Object Storage")]
+    subgraph DataTier ["Persistence & Messaging Tier"]
+        Postgres[("PostgreSQL 16<br/>Relational Database + JSONB Results")]
+        Redis[("Redis 7<br/>BullMQ Queues, Caching, Pub/Sub, Locks")]
+        MinIO[("MinIO S3<br/>Test Case Object Storage")]
     end
 
-    subgraph Sandbox ["Isolated Execution Environment"]
-        DockerHost["Host Docker Engine (/var/run/docker.sock)"]
-        SandboxA["judge-sandbox-*<br/>(Node 20 / Python 3.11 Container)"]
-        SandboxB["judge-sandbox-*<br/>(Node 20 / Python 3.11 Container)"]
+    subgraph SandboxTier ["Isolated Execution Tier"]
+        DockerHost["Docker Engine (/var/run/docker.sock)"]
+        Sandbox["Ephemeral Sandboxes<br/>(Node 20, Python 3.11, GCC, G++, Java 21, Go 1.22, Rustc)"]
     end
 
     Browser <-->|HTTP REST & Cookies| Nginx
-    Browser <-->|Server-Sent Events (SSE)| Nginx
+    Browser <-->|Server-Sent Events| Nginx
     Nginx -->|Reverse Proxy /api/| API
     Nginx -->|Static Assets /| Browser
 
-    API <-->|SQL Queries / Drizzle| Postgres
-    API <-->|Queues, Caching, Pub/Sub| Redis
-    API <-->|SigV4 Testcase Upload| MinIO
+    API <-->|SQL Queries / Schema| Postgres
+    API <-->|Queues, Caching, SSE Pub/Sub| Redis
+    API <-->|Testcase Uploads| MinIO
 
-    Worker <-->|BullMQ Job Consumption| Redis
+    Worker <-->|BullMQ Jobs (judge & sample-run)| Redis
     Worker <-->|Status & Verdict Updates| Postgres
-    Worker <-->|SigV4 Testcase Download| MinIO
-    Worker -->|child_process.execFile| DockerHost
-
-    DockerHost -->|Disposable Spawn| SandboxA
-    DockerHost -->|Disposable Spawn| SandboxB
-
-    API -.->|Pub/Sub Event Delivery| Browser
+    Worker <-->|Testcase Downloads| MinIO
+    Worker -->|Container Spawn| DockerHost
+    DockerHost -->|Disposable Run| Sandbox
 ```
 
 ---
 
-## 2. Core Components
+## 2. Platform Capabilities by Phase
 
-### 2.1 Web Frontend (`apps/frontend`)
+### Phase 1 — Multi-Language Compiler & Secure Sandbox
 
-- **Technology**: React 18, Vite, TypeScript, Tailwind CSS, TanStack React Query, React Router v6.
-- **Role**: Client Single-Page Application (SPA) providing problem browsing, Monaco code editor (`@monaco-editor/react`), run-sample execution, official submission with live status tracking, contest participation, notifications, and real-time standings.
-- **Security**: Zero access tokens in browser storage (`localStorage` / `sessionStorage`). Authentication relies exclusively on `HttpOnly`, `SameSite=Lax` session cookies.
+- **7 Supported Languages**:
+  1. JavaScript (Node.js 20)
+  2. Python (Python 3.11)
+  3. C (GCC 13, C17/C11 standards)
+  4. C++ (G++ 13, C++20/C++17 standards)
+  5. Java (OpenJDK 21)
+  6. Go (Go 1.22)
+  7. Rust (Rustc 2021 edition)
+- **Unified Sandbox Runner**: Ephemeral Docker containers with zero network (`--network none`), read-only rootfs (`--read-only`), PID caps (`--pids-limit 64`), memory caps (`--memory 512m`), CPU quotas, and dropped capabilities (`--cap-drop ALL`).
 
-### 2.2 Backend API (`apps/api`)
+### Phase 2 — Custom Input & Testcase Result Persistence
 
-- **Technology**: Node.js 20, Express, Drizzle ORM, Zod, Pino, Helmet, CORS.
-- **Role**: Validates HTTP payloads, manages user identity, provides REST endpoints for problems and contests, schedules jobs onto BullMQ, streams live Server-Sent Events (SSE), and serves health probes (`/health/live`, `/health/ready`).
-- **Resilience**: Centralized error sanitization (never leaks database stack traces), rate limiting, and atomic compensating transactions on queue failure.
+- **Sample Run Execution**: Dedicated `sample-run-queue` for fast, lightweight custom code execution without modifying leaderboard standing.
+- **Persistent JSONB Results**: Detailed per-test-case results stored in PostgreSQL `submissions.test_case_results` (status, verdict, execution time, memory used).
+- **Hidden Test Case Sanitization**: Strict protection preventing input/output leakage for hidden test cases.
+- **Fail-Fast Evaluation**: Remaining test cases marked `NOT_EXECUTED` after the first failing test to preserve worker compute.
 
-### 2.3 Judge Worker (`apps/judge-worker`)
+### Phase 3 — Advanced Coding Workspace
 
-- **Technology**: Node.js 20, BullMQ, Docker CLI, Drizzle ORM.
-- **Role**: Asynchronous compute consumer that pulls jobs from `judge-queue` (official submissions) and `sample-run-queue` (sample runs), fetches test cases from MinIO, executes user code inside disposable containers via Docker CLI, and writes final verdicts to PostgreSQL.
-- **Reliability**: Atomic CAS job claiming, retry backoff for transient failures, and stale-job recovery sweeper (`SubmissionRecoveryService`).
+- **Three-Panel Layout**: Resizable split panels for Problem Statement, Monaco Editor, and Test Runner / Output.
+- **Dual Execution Modes**: "Run Code" (sample testcases / custom input) and "Submit" (official grading against full hidden test suite).
+- **Draft Autosave & Recovery**: Local storage persistence for user code drafts across problem navigation and reloads.
 
-### 2.4 Data Stores & Message Brokers
+### Phase 4 — Submission History & Source Inspector
 
-1. **PostgreSQL 16**: Relational source of truth for users, problems, test case metadata, submissions, contests, contest participants, and notifications. Managed via Drizzle ORM schema and migrations.
-2. **Redis 7**:
-   - **BullMQ**: `judge-queue` and `sample-run-queue` for reliable job dispatching and retries.
-   - **Sorted Sets (`ZSET`)**: High-performance real-time global leaderboard and contest standings.
-   - **Pub/Sub**: `submission:events`, `contest:updates`, and `notification:events` channels for SSE broadcasting.
-   - **Distributed Locks**: Atomic lock tokens with renewal scripts for contest lifecycle and verdict reconciliation.
-   - **Caches & Rate Limits**: Keyset caching and brute-force lockout counters.
-3. **MinIO / Silo**: S3-compatible object storage storing hidden and sample testcase files (`.in` and `.out`), keeping large input/output payloads out of relational tables.
+- **Comprehensive History**: Filter submissions by search, verdict (AC, WA, TLE, etc.), programming language, and date range.
+- **Source Code Inspector**: Read-only Monaco code viewer with one-click copy, syntax highlighting, and execution breakdown.
+- **URL Parameter Synchronization**: Bookmarking and shareable filter states with a 300ms debounced search input.
+
+### Phase 5 — User Analytics & Performance Dashboard
+
+- **Dedicated Route (`/analytics`)**: Overview cards displaying total submissions, unique problems solved, global rank, and accuracy rate.
+- **Visual Analytics**: Acceptance rate radial gauge, difficulty breakdown progress bars (Easy, Medium, Hard), verdict distribution chart, and language usage breakdown.
+- **Interactive Activity Heatmap**: 52-week calendar heatmap tracking daily submissions and accepted solutions with hover tooltips.
+- **Performance Trends**: Runtime and memory consumption tracking across recent accepted solutions.
+
+### Phase 6 — Production Readiness, Security & CI
+
+- **Docker Production Images**: Multi-stage Dockerfiles for API, Worker, and Frontend with zero extraneous host files via `.dockerignore`.
+- **Automated CI Workflow**: GitHub Actions pipeline covering linting, formatting, TypeScript typechecking, unit tests, integration tests with containerized PostgreSQL/Redis/MinIO, and image builds.
+- **Zero-Tolerance Security**: Automated `attack-suite/` verifying immunity against fork bombs, memory exhaustion, network egress, filesystem escapes, and output flooding.
 
 ---
 
-## 3. End-to-End Submission Lifecycle
+## 3. Data Flow & Execution Lifecycle
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as User Browser
+    actor User as Developer / Contestant
+    participant Browser as React Frontend
     participant API as Express API
     participant DB as PostgreSQL
     participant Redis as Redis / BullMQ
     participant Worker as Judge Worker
-    participant MinIO as MinIO S3
     participant Docker as Docker Sandbox
 
-    User->>API: POST /api/submissions { problemId, code, language }
-    API->>DB: INSERT submission (status: 'QUEUED')
+    User->>Browser: Click "Submit Code"
+    Browser->>API: POST /api/submissions (code, language, problemId)
+    API->>DB: INSERT INTO submissions (status: 'QUEUED')
     API->>Redis: BullMQ.add('judge-queue', jobData)
-    API-->>User: 202 Accepted { id, status: 'QUEUED' }
-
-    User->>API: GET /api/submissions/:id/live (SSE Connection)
-    API->>Redis: Subscribe to submission:events channel
-    API-->>User: SSE event: initial state snapshot
+    API-->>Browser: 202 Accepted { submissionId }
+    Browser->>API: GET /api/submissions/:id/live (SSE Connection)
 
     Worker->>Redis: Pull job from 'judge-queue'
-    Worker->>DB: Optimistic CAS (status: 'RUNNING')
+    Worker->>DB: CAS UPDATE submissions SET status = 'RUNNING'
     Worker->>Redis: Publish SSE event (status: 'RUNNING')
-    Redis-->>API: Forward event
-    API-->>User: SSE event: status RUNNING
+    Redis-->>Browser: SSE message: status = 'RUNNING'
 
-    Worker->>MinIO: Download test case input/output
-    Worker->>Docker: docker run --rm --network none (execute in sandbox)
-    Docker-->>Worker: Execution stdout, stderr, time, memory, exit code
-    Worker->>Worker: Evaluate verdict (compareOutputs)
+    loop For each test case
+        Worker->>Docker: docker run (compiler / runner)
+        Docker-->>Worker: stdout, stderr, time, memory, exit code
+        alt Test Fails (WA, TLE, MLE, RE)
+            Worker->>Worker: Mark remaining tests NOT_EXECUTED (Fail-Fast)
+        end
+    end
 
-    Worker->>DB: UPDATE submission (status: 'COMPLETED', verdict, metrics)
-    Worker->>Redis: Update Global / Contest Leaderboard (ZADD)
-    Worker->>Redis: Publish SSE event (verdict: 'ACCEPTED')
-    Redis-->>API: Forward terminal event
-    API-->>User: SSE event: verdict ACCEPTED
-    API-->>User: Close SSE stream cleanly
+    Worker->>DB: UPDATE submissions (status: 'COMPLETED', verdict, test_case_results)
+    Worker->>Redis: Update Leaderboard Score (Lua Script)
+    Worker->>Redis: Publish terminal SSE event (verdict)
+    Redis-->>Browser: SSE message: verdict = 'ACCEPTED'
+    Browser-->>User: Display verdict badges and metrics
 ```
-
----
-
-## 4. Leaderboard & Contest Architecture
-
-### 4.1 Global Leaderboard
-
-- **Scoring**: Encoded as a composite score:
-  $$\text{Score} = (\text{problemsSolved} \times 10^7) + (10^7 - 1 - \text{penaltySeconds})$$
-- Stored in Redis Sorted Set `judge:leaderboard:global`. Higher scores sort first.
-- Ties in score are broken deterministically by alphabetical username, then user ID.
-- **Cache-Aside Fallback**: If Redis is empty or recovering, the API falls back to PostgreSQL `submissions` (`verdict = 'ACCEPTED'`), processing earliest solves first.
-
-### 4.2 Contest Standings & Freeze Mechanism
-
-- Contests define `startTime`, `endTime`, and optional `freezeTime`.
-- **Pre-Freeze**: Submissions during active time update live contest standings visible to all participants.
-- **Freeze Period**:
-  - Regular participants see standings frozen at `freezeTime`.
-  - Admins and problem setters continue seeing live, unfrozen standings (`Role.ADMIN`).
-- **Post-Contest**: Standings automatically unfreeze once `endTime` passes.
-
----
-
-## 5. Security & Isolation Boundaries
-
-1. **Host-Worker Boundary**: The worker runs outside sandbox containers and interacts with the Docker CLI. It communicates with Redis, MinIO, and PostgreSQL.
-2. **Worker-Sandbox Boundary**: Untrusted code runs inside disposable `judge-sandbox-*` containers with:
-   - Complete network disablement (`--network none`)
-   - Read-only root filesystem (`--read-only`)
-   - RAM and swap caps (`--memory=128m --memory-swap=128m`)
-   - Process caps to stop fork bombs (`--pids-limit=64`)
-   - All capabilities dropped (`--cap-drop ALL`)
-   - Non-root user (`--user 1000:1000`)
-3. **Public Gateway Boundary**: In production (`docker-compose.prod.yml`), only Nginx publishes port 80/443. PostgreSQL, Redis, MinIO, and the API are isolated within an internal bridge network (`judge_network`).

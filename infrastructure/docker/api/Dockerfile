@@ -19,7 +19,8 @@ COPY apps/api/package.json ./apps/api/
 RUN pnpm install --frozen-lockfile
 
 # Copy source code and build
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.base.json ./
+COPY drizzle/ ./drizzle/
 COPY packages/shared/ ./packages/shared/
 COPY apps/api/ ./apps/api/
 
@@ -45,7 +46,7 @@ COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/share
 COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packages/shared/package.json
 COPY --from=builder --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=node:node /app/apps/api/package.json ./apps/api/package.json
-COPY --from=builder --chown=node:node /app/apps/api/drizzle ./apps/api/drizzle
+COPY --from=builder --chown=node:node /app/drizzle ./drizzle
 
 WORKDIR /app/apps/api
 
