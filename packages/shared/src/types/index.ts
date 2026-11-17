@@ -422,3 +422,65 @@ export interface NotificationLiveEvent {
   notification: Notification;
   timestamp: number;
 }
+
+// ============================================================================
+// Phase 5: Analytics and Performance Dashboard Types
+// ============================================================================
+
+export interface DifficultyStats {
+  solved: number;
+  total: number;
+}
+
+export interface DifficultyBreakdown {
+  easy: DifficultyStats;
+  medium: DifficultyStats;
+  hard: DifficultyStats;
+}
+
+export interface VerdictStat {
+  verdict: Verdict;
+  count: number;
+  percentage: number;
+}
+
+export interface LanguageStat {
+  language: SupportedLanguage;
+  count: number;
+  percentage: number;
+}
+
+export interface ActivityHeatmapDay {
+  date: string; // YYYY-MM-DD
+  count: number;
+  acceptedCount: number;
+}
+
+export interface PerformanceTrendPoint {
+  submissionId: string;
+  problemId: string;
+  problemTitle?: string;
+  language: SupportedLanguage;
+  verdict: Verdict;
+  executionTimeMs?: number;
+  memoryUsedKb?: number;
+  createdAt: string;
+}
+
+export interface UserAnalyticsOverview {
+  totalSubmissions: number;
+  totalAccepted: number;
+  acceptanceRate: number;
+  totalSolvedProblems: number;
+  totalAttemptedProblems: number;
+  globalRank?: number | null;
+}
+
+export interface UserAnalytics {
+  overview: UserAnalyticsOverview;
+  difficultyBreakdown: DifficultyBreakdown;
+  verdictDistribution: VerdictStat[];
+  languageUsage: LanguageStat[];
+  activityHeatmap: ActivityHeatmapDay[];
+  performanceTrends: PerformanceTrendPoint[];
+}

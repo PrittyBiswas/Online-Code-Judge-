@@ -10,6 +10,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SubmissionHistoryPage } from './pages/SubmissionHistoryPage';
 import { SubmissionDetailsPage } from './pages/SubmissionDetailsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -37,6 +38,7 @@ export function AppRoutes() {
             <Route path="/submissions" element={<SubmissionHistoryPage />} />
             <Route path="/submissions/:id" element={<SubmissionDetailsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

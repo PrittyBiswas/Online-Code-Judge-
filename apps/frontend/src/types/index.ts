@@ -25,6 +25,14 @@ export type {
   ContestRegistrationResponse,
   ContestUnregistrationResponse,
   CreateContestInput,
+  DifficultyStats,
+  DifficultyBreakdown,
+  VerdictStat,
+  LanguageStat,
+  ActivityHeatmapDay,
+  PerformanceTrendPoint,
+  UserAnalyticsOverview,
+  UserAnalytics,
 } from '@judge/shared';
 
 export interface LeaderboardQueryParams {
