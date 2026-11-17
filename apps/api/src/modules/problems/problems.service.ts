@@ -687,7 +687,11 @@ export class ProblemsService {
     if (!isRedisHealthy()) return '1';
     try {
       const version = await redisClient.get(REDIS_KEYS.PROBLEMS_LIST_VERSION);
-      return version || '1';
+      if (!version) {
+        await redisClient.set(REDIS_KEYS.PROBLEMS_LIST_VERSION, '1');
+        return '1';
+      }
+      return version;
     } catch {
       return '1';
     }

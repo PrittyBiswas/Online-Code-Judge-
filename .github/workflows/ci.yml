@@ -163,6 +163,11 @@ jobs:
       - name: Run database migrations
         run: pnpm db:migrate
 
+      - name: Pre-pull sandbox execution images
+        run: |
+          docker pull node:20-alpine
+          docker pull python:3.11-alpine
+
       - name: Run integration tests
         run: pnpm test:integration
 
