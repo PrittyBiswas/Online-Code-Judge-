@@ -59,6 +59,19 @@ export class Executor {
         finalVerdict = testResult.verdict;
         failedTestIndex = tc.index;
         infraFailureCategory = sandboxResult.infraFailureCategory;
+
+        // Fail-fast stopped execution (AC-SJ-03): record subsequent tests as NOT_EXECUTED
+        const currentPos = testCases.indexOf(tc);
+        for (let j = currentPos + 1; j < testCases.length; j++) {
+          const remainingTc = testCases[j];
+          results.push({
+            index: remainingTc.index,
+            verdict: Verdict.NOT_EXECUTED,
+            executionTimeMs: 0,
+            memoryUsedKb: 0,
+            isHidden: remainingTc.isHidden,
+          });
+        }
         break;
       }
     }

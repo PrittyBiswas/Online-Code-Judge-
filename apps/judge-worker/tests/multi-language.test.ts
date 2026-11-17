@@ -427,7 +427,8 @@ describe('Multi-Language Compiler & Secure Sandbox Tests (Phase 1)', () => {
       expect(evaluated.failedTestIndex).toBe(1);
       // Stopped early after test index 1, never ran index 2 (AC-SJ-03)
       expect(mockSandboxRunner).toHaveBeenCalledTimes(2);
-      expect(evaluated.results).toHaveLength(2);
+      expect(evaluated.results).toHaveLength(3);
+      expect(evaluated.results[2].verdict).toBe(Verdict.NOT_EXECUTED);
     });
 
     it('halts immediately on COMPILATION_ERROR at test case 0', async () => {
@@ -460,6 +461,8 @@ describe('Multi-Language Compiler & Secure Sandbox Tests (Phase 1)', () => {
       expect(evaluated.finalVerdict).toBe(Verdict.COMPILATION_ERROR);
       expect(evaluated.failedTestIndex).toBe(0);
       expect(mockSandboxRunner).toHaveBeenCalledTimes(1);
+      expect(evaluated.results).toHaveLength(2);
+      expect(evaluated.results[1].verdict).toBe(Verdict.NOT_EXECUTED);
     });
   });
 

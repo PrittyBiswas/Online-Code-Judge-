@@ -17,6 +17,7 @@ import {
   SampleRunStatus,
   SubmissionJobData,
   SupportedLanguage,
+  TestCaseResult,
 } from '@judge/shared';
 import { db } from '../../db/index.js';
 import {
@@ -267,13 +268,18 @@ export class SubmissionsService {
 
     const runId = crypto.randomUUID();
     const nowIso = new Date().toISOString();
+    const isCustom = typeof input.customInput === 'string';
+    const effectiveInput = isCustom ? input.customInput! : problem.sampleInput;
+
     const initialState: SampleRunResult & { userId: string } = {
       runId,
       problemId: input.problemId,
       userId,
       language: input.language,
       status: 'QUEUED',
-      expectedOutput: problem.sampleExpectedOutput,
+      expectedOutput: isCustom ? undefined : problem.sampleExpectedOutput,
+      isCustomInput: isCustom,
+      customInput: isCustom ? input.customInput : undefined,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -285,7 +291,9 @@ export class SubmissionsService {
       userId,
       code: input.code,
       language: input.language,
-      sampleInput: problem.sampleInput,
+      sampleInput: effectiveInput,
+      customInput: isCustom ? input.customInput : undefined,
+      isCustomInput: isCustom,
       timeLimitMs: problem.timeLimitMs,
       memoryLimitMb: problem.memoryLimitMb,
     };
@@ -538,6 +546,33 @@ export class SubmissionsService {
     }
   }
 
+  private sanitizeTestCaseResults(results?: TestCaseResult[] | null): TestCaseResult[] | undefined {
+    if (!results || !Array.isArray(results)) return undefined;
+
+    return results.map((tc) => {
+      if (tc.isHidden) {
+        return {
+          index: tc.index,
+          verdict: tc.verdict,
+          executionTimeMs: tc.executionTimeMs,
+          memoryUsedKb: tc.memoryUsedKb,
+          isHidden: true,
+        };
+      }
+      return {
+        index: tc.index,
+        verdict: tc.verdict,
+        executionTimeMs: tc.executionTimeMs,
+        memoryUsedKb: tc.memoryUsedKb,
+        isHidden: false,
+        sampleInput: tc.sampleInput,
+        sampleExpectedOutput: tc.sampleExpectedOutput,
+        actualOutput: tc.actualOutput,
+        diagnostic: tc.diagnostic,
+      };
+    });
+  }
+
   private mapToDto(s: SubmissionRecord): Submission {
     return {
       id: s.id,
@@ -551,6 +586,7 @@ export class SubmissionsService {
       executionTimeMs: s.executionTimeMs ?? undefined,
       memoryUsedKb: s.memoryUsedKb ?? undefined,
       failedTestIndex: s.failedTestIndex ?? undefined,
+      testCaseResults: this.sanitizeTestCaseResults(s.testCaseResults),
       retryCount: s.retryCount,
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),

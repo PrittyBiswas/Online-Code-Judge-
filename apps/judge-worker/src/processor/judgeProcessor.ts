@@ -8,6 +8,7 @@ import {
   SubmissionStatus,
   SUPPORTED_LANGUAGES,
   SupportedLanguage,
+  TestCaseResult,
   Verdict,
 } from '@judge/shared';
 import { db } from '../db/index.js';
@@ -52,6 +53,7 @@ export interface JudgeRepository {
     executionTimeMs: number;
     memoryUsedKb: number;
     failedTestIndex?: number;
+    testCaseResults?: TestCaseResult[];
   }): Promise<boolean>;
 }
 
@@ -176,6 +178,7 @@ export class DrizzleJudgeRepository implements JudgeRepository {
     executionTimeMs: number;
     memoryUsedKb: number;
     failedTestIndex?: number;
+    testCaseResults?: TestCaseResult[];
   }): Promise<boolean> {
     const updatedRows = await db
       .update(submissions)
@@ -185,6 +188,7 @@ export class DrizzleJudgeRepository implements JudgeRepository {
         executionTimeMs: params.executionTimeMs,
         memoryUsedKb: params.memoryUsedKb,
         failedTestIndex: params.failedTestIndex ?? null,
+        testCaseResults: params.testCaseResults ?? null,
         updatedAt: new Date(),
       })
       .where(
@@ -500,13 +504,21 @@ export async function processSubmissionJob(
         userId: claimed.userId,
         contestId: claimed.contestId ?? jobData.contestId ?? undefined,
         evaluation,
-        dbUpdateFn: (id, verdict, executionTimeMs, memoryUsedKb, failedTestIndex) =>
+        dbUpdateFn: (
+          id,
+          verdict,
+          executionTimeMs,
+          memoryUsedKb,
+          failedTestIndex,
+          testCaseResults
+        ) =>
           repository.saveFinalVerdict({
             id,
             verdict,
             executionTimeMs,
             memoryUsedKb,
             failedTestIndex,
+            testCaseResults,
           }),
         redisPublisher,
       })

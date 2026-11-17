@@ -34,6 +34,8 @@ const sampleRunJobSchema = z
       .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES),
     language: z.enum(SUPPORTED_LANGUAGES),
     sampleInput: z.string(),
+    customInput: z.string().optional(),
+    isCustomInput: z.boolean().optional(),
     timeLimitMs: z.number().int().min(100).max(LIMITS.MAX_TIME_LIMIT_MS),
     memoryLimitMb: z.number().int().min(16).max(LIMITS.MAX_MEMORY_LIMIT_MB),
   })
@@ -124,6 +126,9 @@ export async function processSampleRunJob(
   }
 
   const job: SampleRunJobData = parsed.data;
+  const isCustom = Boolean(job.isCustomInput || job.customInput !== undefined);
+  const executionInput =
+    isCustom && typeof job.customInput === 'string' ? job.customInput : job.sampleInput;
   const sandboxRunner = deps.sandboxRunner ?? runInSandbox;
   const existing = await readExistingState(deps.redisClient, job.runId);
   const createdAt = existing.createdAt || new Date().toISOString();
@@ -134,13 +139,15 @@ export async function processSampleRunJob(
     userId: job.userId,
     language: job.language,
     status: 'RUNNING',
-    expectedOutput: existing.expectedOutput,
+    expectedOutput: isCustom ? undefined : existing.expectedOutput,
+    isCustomInput: isCustom,
+    customInput: isCustom ? job.customInput : undefined,
     createdAt,
     updatedAt: new Date().toISOString(),
   });
 
   logger.info(
-    { runId: job.runId, problemId: job.problemId, language: job.language },
+    { runId: job.runId, problemId: job.problemId, language: job.language, isCustom },
     'Executing sample run in Docker sandbox'
   );
 
@@ -148,7 +155,7 @@ export async function processSampleRunJob(
   try {
     sandboxResult = await sandboxRunner({
       code: job.code,
-      input: job.sampleInput,
+      input: executionInput,
       language: job.language,
       timeLimitMs: job.timeLimitMs,
       memoryLimitMb: job.memoryLimitMb,
@@ -162,7 +169,9 @@ export async function processSampleRunJob(
       status: 'FAILED',
       outcome: 'INTERNAL_ERROR',
       errorMessage: 'Sample execution failed due to a sandbox runner error.',
-      expectedOutput: existing.expectedOutput,
+      expectedOutput: isCustom ? undefined : existing.expectedOutput,
+      isCustomInput: isCustom,
+      customInput: isCustom ? job.customInput : undefined,
       createdAt,
       updatedAt: new Date().toISOString(),
     };
@@ -184,7 +193,9 @@ export async function processSampleRunJob(
     outcome: mapped.outcome,
     stdout: boundText(sandboxResult.stdout),
     stderr: boundText(sandboxResult.stderr),
-    expectedOutput: existing.expectedOutput,
+    expectedOutput: isCustom ? undefined : existing.expectedOutput,
+    isCustomInput: isCustom,
+    customInput: isCustom ? job.customInput : undefined,
     executionTimeMs: sandboxResult.executionTimeMs,
     memoryUsedKb: sandboxResult.memoryUsedKb,
     exitCode: sandboxResult.exitCode,

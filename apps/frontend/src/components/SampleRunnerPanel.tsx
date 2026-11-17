@@ -3,13 +3,18 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Cpu,
+  EyeOff,
   Loader2,
   Play,
   Radio,
   RotateCcw,
   Send,
+  Terminal,
+  Trash2,
 } from 'lucide-react';
 import { SubmissionStatus, Verdict } from '@judge/shared';
 import { useAuth } from '../context/AuthContext';
@@ -116,6 +121,11 @@ const VERDICT_META: Record<Verdict, { label: string; badgeClass: string; isAccep
     badgeClass: 'border-rose-500/30 bg-rose-500/15 text-rose-300',
     isAccepted: false,
   },
+  [Verdict.NOT_EXECUTED]: {
+    label: 'Not Executed',
+    badgeClass: 'border-slate-700 bg-slate-800/40 text-slate-400',
+    isAccepted: false,
+  },
 };
 
 type UiRunPhase = 'idle' | 'submitting' | 'queued' | 'running' | 'finished' | 'error';
@@ -159,10 +169,17 @@ export function SampleRunnerPanel({
   });
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
-  // Sample run state
+  // Sample & Custom run state
   const [phase, setPhase] = useState<UiRunPhase>('idle');
   const [runResult, setRunResult] = useState<SampleRunResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'sample' | 'custom' | 'output'>('sample');
+  const [customInput, setCustomInput] = useState<string>('');
+  const [expandedTests, setExpandedTests] = useState<Record<number, boolean>>({});
+
+  function toggleTestExpand(idx: number) {
+    setExpandedTests((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  }
 
   // Official submission state
   const [submitPhase, setSubmitPhase] = useState<UiRunPhase>('idle');
@@ -210,6 +227,9 @@ export function SampleRunnerPanel({
     setOfficialSubmission(null);
     setSubmitError(null);
     setConfirmResetOpen(false);
+    setActiveTab('sample');
+    setCustomInput('');
+    setExpandedTests({});
 
     return () => {
       sampleAbortRef.current?.abort();
@@ -242,7 +262,7 @@ export function SampleRunnerPanel({
     setConfirmResetOpen(false);
   }
 
-  async function handleRunSample() {
+  async function handleRunExecution(isCustom: boolean = false) {
     if (isSampleBusy || sampleInFlightRef.current || authStatus !== 'authenticated') return;
 
     if (!currentCode.trim()) {
@@ -260,6 +280,7 @@ export function SampleRunnerPanel({
     setPhase('submitting');
     setErrorMessage(null);
     setRunResult(null);
+    setActiveTab('output');
 
     try {
       const queued = await runSampleCode(
@@ -268,6 +289,7 @@ export function SampleRunnerPanel({
           code: currentCode,
           language,
           contestId,
+          ...(isCustom ? { customInput } : {}),
         },
         controller.signal
       );
@@ -279,7 +301,7 @@ export function SampleRunnerPanel({
       while (!controller.signal.aborted && activeProblemIdRef.current === targetProblemId) {
         if (Date.now() - startedAt > MAX_SAMPLE_POLL_WAIT_MS) {
           setPhase('error');
-          setErrorMessage('Sample execution timed out waiting for the judge worker.');
+          setErrorMessage('Execution timed out waiting for the judge worker.');
           break;
         }
 
@@ -304,13 +326,21 @@ export function SampleRunnerPanel({
       }
     } catch (err) {
       if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-      const classified = classifyApiError(err, 'Failed to execute sample code.');
+      const classified = classifyApiError(err, 'Failed to execute code.');
       if (classified.category === 'cancelled') return;
       setPhase('error');
       setErrorMessage(classified.message);
     } finally {
       sampleInFlightRef.current = false;
     }
+  }
+
+  function handleRunSample() {
+    return handleRunExecution(false);
+  }
+
+  function handleRunCustom() {
+    return handleRunExecution(true);
   }
 
   async function pollSubmissionStatus(
@@ -690,6 +720,16 @@ export function SampleRunnerPanel({
 
           <button
             type="button"
+            onClick={() => void handleRunCustom()}
+            disabled={isSampleBusy || authStatus !== 'authenticated'}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-950/60 px-3.5 py-2 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-900/60 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Terminal className="h-3.5 w-3.5 text-indigo-400" />
+            Run Custom
+          </button>
+
+          <button
+            type="button"
             onClick={() => void handleOfficialSubmit()}
             disabled={isSubmitBusy || authStatus !== 'authenticated'}
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
@@ -833,6 +873,119 @@ export function SampleRunnerPanel({
             </p>
           )}
 
+          {officialSubmission?.testCaseResults && officialSubmission.testCaseResults.length > 0 && (
+            <div className="mt-4 space-y-2 border-t border-slate-800 pt-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Test Case Breakdown ({officialSubmission.testCaseResults.length} Tests)
+              </h4>
+              <div className="space-y-2">
+                {officialSubmission.testCaseResults.map((tc, idx) => {
+                  const tcMeta = VERDICT_META[tc.verdict] || {
+                    label: tc.verdict,
+                    badgeClass: 'border-slate-700 bg-slate-800 text-slate-300',
+                    isAccepted: false,
+                  };
+                  const isExpanded = Boolean(expandedTests[idx]);
+
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-300">Test #{idx + 1}</span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${tcMeta.badgeClass}`}
+                          >
+                            {tcMeta.label}
+                          </span>
+                          {tc.isHidden && (
+                            <span className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                              <EyeOff className="h-3 w-3" />
+                              Hidden
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {tc.executionTimeMs > 0 && (
+                            <span className="text-slate-400">{tc.executionTimeMs} ms</span>
+                          )}
+                          {tc.memoryUsedKb > 0 && (
+                            <span className="text-slate-400">{tc.memoryUsedKb} KB</span>
+                          )}
+                          {!tc.isHidden && (
+                            <button
+                              type="button"
+                              onClick={() => toggleTestExpand(idx)}
+                              className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <span>Hide Details</span>
+                                  <ChevronUp className="h-3 w-3" />
+                                </>
+                              ) : (
+                                <>
+                                  <span>View Details</span>
+                                  <ChevronDown className="h-3 w-3" />
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {!tc.isHidden && isExpanded && (
+                        <div className="mt-3 grid gap-2 border-t border-slate-800 pt-2 md:grid-cols-2">
+                          {tc.sampleInput !== undefined && (
+                            <div>
+                              <span className="text-[11px] font-medium text-slate-400">Input:</span>
+                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
+                                <code>{tc.sampleInput || '(empty)'}</code>
+                              </pre>
+                            </div>
+                          )}
+                          {tc.sampleExpectedOutput !== undefined && (
+                            <div>
+                              <span className="text-[11px] font-medium text-slate-400">
+                                Expected Output:
+                              </span>
+                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
+                                <code>{tc.sampleExpectedOutput || '(empty)'}</code>
+                              </pre>
+                            </div>
+                          )}
+                          {tc.actualOutput !== undefined && (
+                            <div className="md:col-span-2">
+                              <span className="text-[11px] font-medium text-slate-400">
+                                Your Output:
+                              </span>
+                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
+                                <code>{tc.actualOutput || '(empty)'}</code>
+                              </pre>
+                            </div>
+                          )}
+                          {tc.diagnostic && (
+                            <div className="md:col-span-2">
+                              <span className="text-[11px] font-medium text-rose-400">
+                                Diagnostic:
+                              </span>
+                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-rose-300">
+                                <code>{tc.diagnostic}</code>
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {submitPhase === 'error' && submitError && (
             <div
               role="alert"
@@ -853,89 +1006,241 @@ export function SampleRunnerPanel({
         </div>
       )}
 
-      <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+        <div className="flex border-b border-slate-800 bg-slate-900/50">
+          <button
+            type="button"
+            onClick={() => setActiveTab('sample')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition ${
+              activeTab === 'sample'
+                ? 'border-b-2 border-indigo-500 bg-slate-900 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Play className="h-3.5 w-3.5" />
+            Sample Cases
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('custom')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition ${
+              activeTab === 'custom'
+                ? 'border-b-2 border-indigo-500 bg-slate-900 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Terminal className="h-3.5 w-3.5" />
+            Custom Input
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('output')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition ${
+              activeTab === 'output'
+                ? 'border-b-2 border-indigo-500 bg-slate-900 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Cpu className="h-3.5 w-3.5" />
             Execution Output
-          </h3>
-          {phase === 'idle' && <span className="text-xs text-slate-500">Ready to run</span>}
-          {phase === 'submitting' && (
-            <span role="status" className="text-xs text-indigo-300">
-              Submitting sample run...
-            </span>
-          )}
-          {phase === 'queued' && (
-            <span role="status" className="text-xs text-amber-300">
-              Queued for sandbox execution...
-            </span>
-          )}
-          {phase === 'running' && (
-            <span role="status" className="text-xs text-indigo-300">
-              Running in isolated Docker sandbox...
-            </span>
-          )}
-          {phase === 'finished' && outcomeMeta && (
-            <div className="flex flex-wrap items-center gap-3">
+            {phase === 'running' && (
+              <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+            )}
+            {phase === 'finished' && runResult && (
               <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${outcomeMeta.badgeClass}`}
-              >
-                {outcomeMeta.isError ? (
-                  <AlertCircle className="h-3 w-3" />
-                ) : (
-                  <CheckCircle2 className="h-3 w-3" />
+                className={`h-2 w-2 rounded-full ${
+                  outcomeMeta?.isError ? 'bg-rose-400' : 'bg-emerald-400'
+                }`}
+              />
+            )}
+          </button>
+        </div>
+
+        <div className="p-4">
+          {activeTab === 'sample' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Predefined Sample Case
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Standard problem test case defined in the problem description. Click{' '}
+                    <strong>Run Sample</strong> in the toolbar above to test against it.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
+                <span className="text-slate-400">
+                  Sample case is loaded and ready. Switch to <strong>Custom Input</strong> to test
+                  your own arbitrary input data.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'custom' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                    Custom Standard Input
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Arbitrary input passed to stdin without modifying problem statistics.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCustomInput('')}
+                    disabled={!customInput || isSampleBusy}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Clear Input
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRunCustom()}
+                    disabled={isSampleBusy || authStatus !== 'authenticated'}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    <Play className="h-3 w-3" />
+                    Run Custom Input
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="custom-stdin" className="sr-only">
+                  Custom Standard Input
+                </label>
+                <textarea
+                  id="custom-stdin"
+                  aria-label="Custom standard input"
+                  value={customInput}
+                  onChange={(e) => setCustomInput(e.target.value)}
+                  placeholder="Enter custom input data here (passed via stdin)..."
+                  rows={5}
+                  disabled={isSampleBusy}
+                  className="w-full resize-y rounded-lg border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div className="mt-1 flex justify-end text-[11px] text-slate-500">
+                  {customInput.length} / 65536 characters
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'output' && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Execution Output
+                  </h4>
+                  {runResult?.isCustomInput && (
+                    <span className="rounded border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
+                      Custom Input Run
+                    </span>
+                  )}
+                  {runResult && !runResult.isCustomInput && (
+                    <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                      Sample Run
+                    </span>
+                  )}
+                </div>
+
+                {phase === 'idle' && <span className="text-xs text-slate-500">Ready to run</span>}
+                {phase === 'submitting' && (
+                  <span role="status" className="text-xs text-indigo-300">
+                    Submitting code execution...
+                  </span>
                 )}
-                {outcomeMeta.label}
-              </span>
-              {runResult?.executionTimeMs !== undefined && (
-                <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                  <Clock className="h-3 w-3" />
-                  {runResult.executionTimeMs} ms
-                </span>
+                {phase === 'queued' && (
+                  <span role="status" className="text-xs text-amber-300">
+                    Queued for sandbox execution...
+                  </span>
+                )}
+                {phase === 'running' && (
+                  <span role="status" className="text-xs text-indigo-300">
+                    Running in isolated Docker sandbox...
+                  </span>
+                )}
+                {phase === 'finished' && outcomeMeta && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${outcomeMeta.badgeClass}`}
+                    >
+                      {outcomeMeta.isError ? (
+                        <AlertCircle className="h-3 w-3" />
+                      ) : (
+                        <CheckCircle2 className="h-3 w-3" />
+                      )}
+                      {outcomeMeta.label}
+                    </span>
+                    {runResult?.executionTimeMs !== undefined && (
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                        <Clock className="h-3 w-3" />
+                        {runResult.executionTimeMs} ms
+                      </span>
+                    )}
+                    {runResult?.memoryUsedKb !== undefined && runResult.memoryUsedKb > 0 && (
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                        <Cpu className="h-3 w-3" />
+                        {runResult.memoryUsedKb} KB
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {phase === 'error' && errorMessage && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                >
+                  {errorMessage}
+                </div>
               )}
-              {runResult?.memoryUsedKb !== undefined && runResult.memoryUsedKb > 0 && (
-                <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                  <Cpu className="h-3 w-3" />
-                  {runResult.memoryUsedKb} KB
-                </span>
+
+              {runResult?.errorMessage && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                >
+                  {runResult.errorMessage}
+                </div>
+              )}
+
+              {runResult ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <h5 className="mb-1 text-xs font-medium text-slate-400">
+                      Standard Output (stdout)
+                    </h5>
+                    <pre className="min-h-[64px] overflow-x-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-slate-200">
+                      <code>{runResult.stdout || '(empty)'}</code>
+                    </pre>
+                  </div>
+                  <div>
+                    <h5 className="mb-1 text-xs font-medium text-slate-400">
+                      Standard Error (stderr)
+                    </h5>
+                    <pre className="min-h-[64px] overflow-x-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-rose-200">
+                      <code>{runResult.stderr || '(none)'}</code>
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-800 text-xs text-slate-500">
+                  Run sample cases or custom input to see output.
+                </div>
               )}
             </div>
           )}
         </div>
-
-        {phase === 'error' && errorMessage && (
-          <div
-            role="alert"
-            className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
-          >
-            {errorMessage}
-          </div>
-        )}
-
-        {runResult?.errorMessage && (
-          <div
-            role="alert"
-            className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
-          >
-            {runResult.errorMessage}
-          </div>
-        )}
-
-        {runResult && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <h4 className="mb-1 text-xs font-medium text-slate-400">Standard Output (stdout)</h4>
-              <pre className="min-h-[64px] overflow-x-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-slate-200">
-                <code>{runResult.stdout || '(empty)'}</code>
-              </pre>
-            </div>
-            <div>
-              <h4 className="mb-1 text-xs font-medium text-slate-400">Standard Error (stderr)</h4>
-              <pre className="min-h-[64px] overflow-x-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-rose-200">
-                <code>{runResult.stderr || '(none)'}</code>
-              </pre>
-            </div>
-          </div>
-        )}
       </div>
     </section>
   );

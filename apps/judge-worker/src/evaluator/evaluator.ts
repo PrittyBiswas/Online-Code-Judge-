@@ -29,9 +29,15 @@ export class Evaluator {
         verdict: sandboxResult.verdict,
         executionTimeMs: sandboxResult.executionTimeMs,
         memoryUsedKb: sandboxResult.memoryUsedKb,
+        isHidden,
         sampleInput: isHidden ? undefined : sampleInput,
         sampleExpectedOutput: isHidden ? undefined : expectedOutput,
         actualOutput: isHidden ? undefined : sandboxResult.stdout,
+        diagnostic: isHidden
+          ? undefined
+          : sandboxResult.stderr
+            ? sandboxResult.stderr.slice(0, 1024)
+            : undefined,
       };
     }
 
@@ -43,9 +49,15 @@ export class Evaluator {
       verdict,
       executionTimeMs: sandboxResult.executionTimeMs,
       memoryUsedKb: sandboxResult.memoryUsedKb,
+      isHidden,
       sampleInput: isHidden ? undefined : sampleInput,
       sampleExpectedOutput: isHidden ? undefined : expectedOutput,
       actualOutput: isHidden ? undefined : sandboxResult.stdout,
+      diagnostic: isHidden
+        ? undefined
+        : sandboxResult.stderr
+          ? sandboxResult.stderr.slice(0, 1024)
+          : undefined,
     };
   }
 }

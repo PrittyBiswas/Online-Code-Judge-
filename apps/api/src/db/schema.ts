@@ -1,4 +1,5 @@
 import { sql, relations } from 'drizzle-orm';
+import type { TestCaseResult } from '@judge/shared';
 import {
   pgTable,
   uuid,
@@ -118,6 +119,7 @@ export const submissions = pgTable(
     executionTimeMs: integer('execution_time_ms'),
     memoryUsedKb: integer('memory_used_kb'),
     failedTestIndex: integer('failed_test_index'),
+    testCaseResults: jsonb('test_case_results').$type<TestCaseResult[]>(),
     retryCount: integer('retry_count').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

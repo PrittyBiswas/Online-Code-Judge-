@@ -3,6 +3,7 @@ import {
   Verdict,
   SubmissionEvent,
   ContestUpdateEvent,
+  TestCaseResult,
   REDIS_KEYS,
   RECORD_SOLVE_LUA_SCRIPT,
   PENALTY_OFFSET,
@@ -22,7 +23,8 @@ export interface VerdictSaveOptions {
     verdict: Verdict,
     execTime: number,
     memoryUsedKb: number,
-    failedIndex?: number
+    failedIndex?: number,
+    testCaseResults?: TestCaseResult[]
   ) => Promise<boolean>;
   redisPublisher?: Redis | null;
 }
@@ -43,7 +45,8 @@ export class VerdictHandler {
         finalVerdict,
         evaluation.maxExecutionTimeMs,
         evaluation.maxMemoryUsedKb,
-        evaluation.failedTestIndex
+        evaluation.failedTestIndex,
+        evaluation.results
       );
 
       if (!updated) {

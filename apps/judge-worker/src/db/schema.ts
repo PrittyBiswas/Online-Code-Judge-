@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  varchar,
+  text,
+  integer,
+  boolean,
+  timestamp,
+  jsonb,
+} from 'drizzle-orm/pg-core';
+import type { TestCaseResult } from '@judge/shared';
 
 export const problems = pgTable('problems', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -43,6 +53,7 @@ export const submissions = pgTable('submissions', {
   executionTimeMs: integer('execution_time_ms'),
   memoryUsedKb: integer('memory_used_kb'),
   failedTestIndex: integer('failed_test_index'),
+  testCaseResults: jsonb('test_case_results').$type<TestCaseResult[]>(),
   retryCount: integer('retry_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -11,6 +11,7 @@ export type {
   Submission,
   SubmissionEvent,
   SubmissionStatus,
+  TestCaseResult,
   Verdict,
   LeaderboardEntry,
   LeaderboardPagination,

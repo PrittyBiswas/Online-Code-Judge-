@@ -208,13 +208,16 @@ describe('Judge Worker Unit Tests (Day 6)', () => {
     expect(result.verdict).toBe(Verdict.ACCEPTED);
     expect(result.executionTimeMs).toBe(40);
     expect(result.memoryUsedKb).toBe(20480);
-    expect(saveFinalVerdict).toHaveBeenCalledWith({
-      id: submissionId,
-      verdict: Verdict.ACCEPTED,
-      executionTimeMs: 40,
-      memoryUsedKb: 20480,
-      failedTestIndex: undefined,
-    });
+    expect(saveFinalVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: submissionId,
+        verdict: Verdict.ACCEPTED,
+        executionTimeMs: 40,
+        memoryUsedKb: 20480,
+        failedTestIndex: undefined,
+        testCaseResults: expect.any(Array),
+      })
+    );
     expect(sandboxRunner).toHaveBeenCalledTimes(2);
     expect(storage.getObject).toHaveBeenCalledWith(`problems/${problemId}/test_0_in.txt`);
   });
@@ -1013,13 +1016,16 @@ describe('Judge Engine Edge Cases & Malformed Input Unit Tests (Day 8)', () => {
     expect(result.executionTimeMs).toBe(95);
     expect(result.memoryUsedKb).toBe(32768);
     expect(sandboxRunner).toHaveBeenCalledTimes(18); // Stopped early at index 17
-    expect(saveFinalVerdict).toHaveBeenCalledWith({
-      id: submissionId,
-      verdict: Verdict.WRONG_ANSWER,
-      executionTimeMs: 95,
-      memoryUsedKb: 32768,
-      failedTestIndex: 17,
-    });
+    expect(saveFinalVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: submissionId,
+        verdict: Verdict.WRONG_ANSWER,
+        executionTimeMs: 95,
+        memoryUsedKb: 32768,
+        failedTestIndex: 17,
+        testCaseResults: expect.any(Array),
+      })
+    );
 
     // Verify Evaluator redacts hidden test details directly (public test passes, hidden test 1 fails)
     const directRunner = vi

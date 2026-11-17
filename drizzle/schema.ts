@@ -48,6 +48,7 @@ export interface SubmissionRow {
   execution_time_ms: number | null;
   memory_used_kb: number | null;
   failed_test_index: number | null;
+  test_case_results?: any | null;
   retry_count: number;
   created_at: Date;
   updated_at: Date;

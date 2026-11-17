@@ -25,6 +25,12 @@ export const runSampleSchema = z
       }),
     language: z.enum(SUPPORTED_LANGUAGES).default('javascript'),
     contestId: z.string().uuid('Invalid contest ID format').optional(),
+    customInput: z
+      .string()
+      .refine((val) => Buffer.byteLength(val, 'utf8') <= LIMITS.MAX_CODE_SIZE_BYTES, {
+        message: `Custom input size exceeds maximum allowed size of ${LIMITS.MAX_CODE_SIZE_BYTES / 1024} KB`,
+      })
+      .optional(),
   })
   .strict();
 

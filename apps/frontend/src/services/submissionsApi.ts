@@ -12,6 +12,7 @@ export interface RunSampleRequest {
   code: string;
   language: SupportedLanguage;
   contestId?: string;
+  customInput?: string;
 }
 
 interface RunSampleEnqueueEnvelope {
@@ -51,6 +52,7 @@ export async function runSampleCode(
       code: payload.code,
       language: payload.language,
       ...(payload.contestId ? { contestId: payload.contestId } : {}),
+      ...(payload.customInput !== undefined ? { customInput: payload.customInput } : {}),
     },
     { signal }
   );
@@ -80,6 +82,7 @@ export async function submitOfficialSolution(
       code: payload.code,
       language: payload.language,
       ...(payload.contestId ? { contestId: payload.contestId } : {}),
+      ...(payload.customInput !== undefined ? { customInput: payload.customInput } : {}),
     },
     { signal }
   );

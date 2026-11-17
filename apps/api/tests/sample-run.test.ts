@@ -227,7 +227,7 @@ describe('Day 14 — Sample Execution Backend & Security', () => {
         problemId: PROBLEM_ID,
         code: 'console.log(1)',
         language: 'javascript',
-        customInput: 'EVIL_INPUT',
+        customInput: 'A'.repeat(LIMITS.MAX_CODE_SIZE_BYTES + 1),
       },
     });
     expect(customInputAttempt.status).toBe(400);

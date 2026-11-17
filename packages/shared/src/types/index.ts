@@ -13,6 +13,7 @@ export enum Verdict {
   COMPILATION_ERROR = 'COMPILATION_ERROR',
   OUTPUT_LIMIT_EXCEEDED = 'OUTPUT_LIMIT_EXCEEDED',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
+  NOT_EXECUTED = 'NOT_EXECUTED',
 }
 
 export enum SubmissionStatus {
@@ -132,10 +133,12 @@ export interface TestCaseResult {
   verdict: Verdict;
   executionTimeMs: number;
   memoryUsedKb: number;
+  isHidden?: boolean;
   // Hidden test input and output are strictly NEVER returned
   sampleInput?: string;
   sampleExpectedOutput?: string;
   actualOutput?: string;
+  diagnostic?: string;
 }
 
 export interface Submission {
@@ -186,6 +189,8 @@ export interface SampleRunJobData {
   code: string;
   language: SupportedLanguage;
   sampleInput: string;
+  customInput?: string;
+  isCustomInput?: boolean;
   timeLimitMs: number;
   memoryLimitMb: number;
 }
@@ -199,6 +204,8 @@ export interface SampleRunResult {
   stdout?: string;
   stderr?: string;
   expectedOutput?: string;
+  customInput?: string;
+  isCustomInput?: boolean;
   executionTimeMs?: number;
   memoryUsedKb?: number;
   exitCode?: number | null;

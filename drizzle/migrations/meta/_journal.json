@@ -64,6 +64,13 @@
       "when": 1794640000000,
       "tag": "0008_add_user_profiles_table",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794650000000,
+      "tag": "0009_add_test_case_results_to_submissions",
+      "breakpoints": true
     }
   ]
 }
