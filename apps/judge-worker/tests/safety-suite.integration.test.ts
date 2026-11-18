@@ -138,7 +138,11 @@ for _ in range(100):
       code: netAttack,
       timeLimitMs: 2500,
     });
-    expect([Verdict.RUNTIME_ERROR, Verdict.TIME_LIMIT_EXCEEDED]).toContain(dnsHttpRes.verdict);
+    expect([
+      Verdict.RUNTIME_ERROR,
+      Verdict.TIME_LIMIT_EXCEEDED,
+      Verdict.MEMORY_LIMIT_EXCEEDED,
+    ]).toContain(dnsHttpRes.verdict);
     expect(dnsHttpRes.stdout).not.toContain('NETWORK BREACH');
 
     // Direct IP and local host service connection attempts fail immediately

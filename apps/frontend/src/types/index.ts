@@ -4,6 +4,7 @@ export type {
   HealthStatusResponse,
   RootApiInfo,
   Problem,
+  ProblemExample,
   SupportedLanguage,
   SampleRunStatus,
   SampleRunOutcome,
@@ -56,6 +57,7 @@ export interface PlatformFeature {
 export interface ProblemListResponse {
   items: import('@judge/shared').Problem[];
   nextCursor: string | null;
+  total?: number;
 }
 
 export interface ProblemListQueryParams {

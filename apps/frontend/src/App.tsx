@@ -13,9 +13,12 @@ import { ProfilePage } from './pages/ProfilePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SubmissionHistoryPage } from './pages/SubmissionHistoryPage';
 import { SubmissionDetailsPage } from './pages/SubmissionDetailsPage';
+import { AdminProblemsPage } from './pages/AdminProblemsPage';
+import { AdminProblemFormPage } from './pages/AdminProblemFormPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { useHealthCheck } from './hooks/useHealthCheck';
+import { Role } from '@judge/shared';
 
 export function AppRoutes() {
   const { status, data } = useHealthCheck();
@@ -39,6 +42,12 @@ export function AppRoutes() {
             <Route path="/submissions/:id" element={<SubmissionDetailsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+          </Route>
+
+          <Route element={<ProtectedRoute allowedRoles={[Role.ADMIN, Role.PROBLEM_SETTER]} />}>
+            <Route path="/admin/problems" element={<AdminProblemsPage />} />
+            <Route path="/admin/problems/new" element={<AdminProblemFormPage />} />
+            <Route path="/admin/problems/:id/edit" element={<AdminProblemFormPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

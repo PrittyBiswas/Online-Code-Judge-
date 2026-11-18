@@ -156,16 +156,16 @@ function getDraftKey(problemId: string, lang: SupportedLanguage): string {
   return `judge_code_draft_${problemId}_${lang}`;
 }
 
-function readDraft(problemId: string, lang: SupportedLanguage): string {
+function readDraft(problem: Problem, lang: SupportedLanguage): string {
   try {
-    const val = localStorage.getItem(getDraftKey(problemId, lang));
+    const val = localStorage.getItem(getDraftKey(problem.id, lang));
     if (val !== null && val.trim().length > 0) {
       return val;
     }
   } catch {
     // Storage unavailable
   }
-  return STARTER_CODE[lang];
+  return problem.starterCode?.[lang] || STARTER_CODE[lang];
 }
 
 function getPhaseRank(phase: UiRunPhase): number {
@@ -200,7 +200,7 @@ export function SampleRunnerPanel({
     const initial: Record<SupportedLanguage, string> = { ...STARTER_CODE };
     const langs: SupportedLanguage[] = ['javascript', 'python', 'c', 'cpp', 'java', 'go', 'rust'];
     for (const l of langs) {
-      initial[l] = readDraft(problem.id, l);
+      initial[l] = readDraft(problem, l);
     }
     return initial;
   });
@@ -266,7 +266,7 @@ export function SampleRunnerPanel({
     const langs: SupportedLanguage[] = ['javascript', 'python', 'c', 'cpp', 'java', 'go', 'rust'];
     const updatedCodes: Record<SupportedLanguage, string> = { ...STARTER_CODE };
     for (const l of langs) {
-      updatedCodes[l] = readDraft(problem.id, l);
+      updatedCodes[l] = readDraft(problem, l);
     }
     setCodeByLang(updatedCodes);
     setAutosaveStatus('saved');
@@ -292,10 +292,11 @@ export function SampleRunnerPanel({
         clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [problem.id]);
+  }, [problem]);
 
   const currentCode = codeByLang[language];
-  const isDirty = currentCode !== STARTER_CODE[language];
+  const defaultLanguageCode = problem.starterCode?.[language] || STARTER_CODE[language];
+  const isDirty = currentCode !== defaultLanguageCode;
   const isSampleBusy = phase === 'submitting' || phase === 'queued' || phase === 'running';
   const isSubmitBusy =
     submitPhase === 'submitting' || submitPhase === 'queued' || submitPhase === 'running';
@@ -309,10 +310,11 @@ export function SampleRunnerPanel({
     setConfirmResetOpen(false);
 
     setCodeByLang((prev) => {
-      if (prev[nextLang] && prev[nextLang] !== STARTER_CODE[nextLang]) {
+      const nextDefault = problem.starterCode?.[nextLang] || STARTER_CODE[nextLang];
+      if (prev[nextLang] && prev[nextLang] !== nextDefault) {
         return prev;
       }
-      const draft = readDraft(problem.id, nextLang);
+      const draft = readDraft(problem, nextLang);
       return { ...prev, [nextLang]: draft };
     });
     setAutosaveStatus('saved');
@@ -338,7 +340,7 @@ export function SampleRunnerPanel({
 
   function handleResetRequest() {
     if (!isDirty) {
-      setCodeByLang((prev) => ({ ...prev, [language]: STARTER_CODE[language] }));
+      setCodeByLang((prev) => ({ ...prev, [language]: defaultLanguageCode }));
       return;
     }
     setConfirmResetOpen(true);
@@ -353,7 +355,7 @@ export function SampleRunnerPanel({
     } catch {
       // Storage unavailable
     }
-    setCodeByLang((prev) => ({ ...prev, [language]: STARTER_CODE[language] }));
+    setCodeByLang((prev) => ({ ...prev, [language]: defaultLanguageCode }));
     setAutosaveStatus('saved');
     setConfirmResetOpen(false);
   }
@@ -1037,24 +1039,64 @@ export function SampleRunnerPanel({
         <div className="flex-1 overflow-y-auto p-4">
           {/* TAB 1: TEST CASES */}
           {activeTab === 'sample' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                    Sample Test Cases
-                  </h4>
-                  <p className="text-[11px] text-slate-500">
-                    Standard problem test cases defined in the problem description. Click{' '}
-                    <strong>Run Sample</strong> in the toolbar above to test against them.
-                  </p>
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Sample Test Cases
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Standard problem test cases defined in the problem description. Click{' '}
+                  <strong>Run Sample</strong> in the toolbar above to test against them.
+                </p>
+              </div>
+
+              {problem.examples && problem.examples.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {problem.examples.map((ex, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-indigo-400">Case {idx + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomInput(ex.input);
+                            setActiveTab('custom');
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-indigo-300 underline"
+                        >
+                          Load into Stdin
+                        </button>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-semibold text-slate-500">
+                          Input:
+                        </div>
+                        <pre className="mt-0.5 rounded bg-slate-950 p-1.5 font-mono text-[11px] text-slate-200 overflow-x-auto">
+                          {ex.input}
+                        </pre>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-semibold text-slate-500">
+                          Expected Output:
+                        </div>
+                        <pre className="mt-0.5 rounded bg-slate-950 p-1.5 font-mono text-[11px] text-slate-200 overflow-x-auto">
+                          {ex.output}
+                        </pre>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
-                <span className="text-slate-400">
-                  Sample case is loaded and ready. Switch to <strong>Custom Input</strong> to test
-                  your own arbitrary input data.
-                </span>
-              </div>
+              ) : (
+                <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
+                  <span className="text-slate-400">
+                    Sample case is loaded and ready. Switch to <strong>Custom Input</strong> to test
+                    your own arbitrary input data.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

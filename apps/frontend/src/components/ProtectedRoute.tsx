@@ -2,8 +2,8 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export function ProtectedRoute() {
-  const { status, bootstrapError, refreshAuth } = useAuth();
+export function ProtectedRoute({ allowedRoles }: { allowedRoles?: string[] } = {}) {
+  const { status, user, bootstrapError, refreshAuth } = useAuth();
   const location = useLocation();
 
   if (status === 'loading') {
@@ -43,6 +43,10 @@ export function ProtectedRoute() {
 
   if (status === 'unauthenticated') {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;

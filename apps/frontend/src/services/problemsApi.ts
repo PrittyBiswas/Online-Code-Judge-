@@ -58,3 +58,33 @@ export async function fetchProblemById(
   );
   return response.data.data.problem;
 }
+
+export async function fetchAdminProblems(
+  signal?: AbortSignal
+): Promise<{ items: Problem[]; total: number }> {
+  const response = await apiClient.get<{ data: { items: Problem[]; total: number } }>(
+    '/api/problems/manage/all',
+    { signal }
+  );
+  return response.data.data;
+}
+
+export async function createProblem(data: Record<string, any>): Promise<Problem> {
+  const response = await apiClient.post<ProblemDetailEnvelope>('/api/problems', data);
+  return response.data.data.problem;
+}
+
+export async function updateProblem(id: string, data: Record<string, any>): Promise<Problem> {
+  const response = await apiClient.put<ProblemDetailEnvelope>(
+    `/api/problems/${encodeURIComponent(id)}`,
+    data
+  );
+  return response.data.data.problem;
+}
+
+export async function deleteProblem(id: string): Promise<{ deleted: boolean; archived: boolean }> {
+  const response = await apiClient.delete<{
+    data: { deleted: boolean; archived: boolean; id: string };
+  }>(`/api/problems/${encodeURIComponent(id)}`);
+  return response.data.data;
+}

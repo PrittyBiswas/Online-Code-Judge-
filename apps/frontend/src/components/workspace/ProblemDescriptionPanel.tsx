@@ -121,9 +121,9 @@ export function ProblemDescriptionPanel({
             <FileText className="h-4 w-4 text-indigo-400" />
             Problem Statement
           </h2>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
-            {problem.statement}
-          </p>
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
+            {problem.statement || problem.description}
+          </div>
         </section>
 
         {/* Input & Output Format */}
@@ -135,20 +135,20 @@ export function ProblemDescriptionPanel({
             <ListFilter className="h-4 w-4 text-indigo-400" />
             Input &amp; Output Format
           </h2>
-          <div className="space-y-2 rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs text-slate-300">
+          <div className="space-y-3 rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs text-slate-300">
             <div>
-              <span className="font-semibold text-slate-200">Standard Input: </span>
-              <span>
-                Input is provided via standard input (stdin) formatted as described in the problem
-                specifications.
-              </span>
+              <span className="block font-semibold text-slate-200 mb-1">Standard Input:</span>
+              <p className="whitespace-pre-wrap text-slate-300">
+                {problem.inputFormat ||
+                  'Input is provided via standard input (stdin) formatted as described in the problem specifications.'}
+              </p>
             </div>
-            <div>
-              <span className="font-semibold text-slate-200">Standard Output: </span>
-              <span>
-                Output your solution to standard output (stdout). Ensure formatting and line breaks
-                match expected results.
-              </span>
+            <div className="border-t border-slate-800/60 pt-2">
+              <span className="block font-semibold text-slate-200 mb-1">Standard Output:</span>
+              <p className="whitespace-pre-wrap text-slate-300">
+                {problem.outputFormat ||
+                  'Output your solution to standard output (stdout). Ensure formatting and line breaks match expected results.'}
+              </p>
             </div>
           </div>
         </section>
@@ -162,44 +162,89 @@ export function ProblemDescriptionPanel({
             <CheckCircle2 className="h-4 w-4 text-indigo-400" />
             Constraints
           </h2>
-          <ul className="list-inside list-disc space-y-1 rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs text-slate-300">
-            <li>
-              Execution time must not exceed{' '}
-              <strong className="text-slate-100">{problem.timeLimitMs} ms</strong>.
-            </li>
-            <li>
-              Memory usage must not exceed{' '}
-              <strong className="text-slate-100">{problem.memoryLimitMb} MB</strong>.
-            </li>
-            <li>
-              Source code size must be under <strong className="text-slate-100">64 KB</strong>.
-            </li>
-          </ul>
+          <div className="space-y-2 rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs text-slate-300">
+            {problem.constraints && (
+              <div className="mb-2 whitespace-pre-wrap font-mono text-slate-200">
+                {problem.constraints}
+              </div>
+            )}
+            <ul className="list-inside list-disc space-y-1 text-slate-400">
+              <li>
+                Execution time limit:{' '}
+                <strong className="text-slate-200">{problem.timeLimitMs} ms</strong>
+              </li>
+              <li>
+                Memory limit: <strong className="text-slate-200">{problem.memoryLimitMb} MB</strong>
+              </li>
+              <li>
+                Source code size limit: <strong className="text-slate-200">64 KB</strong>
+              </li>
+            </ul>
+          </div>
         </section>
 
-        {/* Public Example Input & Output */}
-        <section aria-labelledby="sample-io-heading" className="space-y-3">
-          <h2 id="sample-io-heading" className="text-sm font-semibold text-slate-100">
-            Public Example
+        {/* Examples Section */}
+        <section aria-labelledby="examples-heading" className="space-y-4">
+          <h2 id="examples-heading" className="text-sm font-semibold text-slate-100">
+            Examples
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5">
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Sample Input
-              </h3>
-              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
-                <code>{problem.sampleInput || '(empty)'}</code>
-              </pre>
+          {problem.examples && problem.examples.length > 0 ? (
+            <div className="space-y-4">
+              {problem.examples.map((ex, index) => (
+                <div
+                  key={index}
+                  className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3"
+                >
+                  <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
+                    Example {index + 1}
+                  </span>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-slate-800/90 bg-slate-900/90 p-3">
+                      <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                        Input
+                      </h4>
+                      <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
+                        <code>{ex.input || '(empty)'}</code>
+                      </pre>
+                    </div>
+                    <div className="rounded-lg border border-slate-800/90 bg-slate-900/90 p-3">
+                      <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                        Output
+                      </h4>
+                      <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
+                        <code>{ex.output || '(empty)'}</code>
+                      </pre>
+                    </div>
+                  </div>
+                  {ex.explanation && (
+                    <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2.5 text-xs text-slate-300">
+                      <span className="font-semibold text-slate-200">Explanation: </span>
+                      <span>{ex.explanation}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5">
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Sample Expected Output
-              </h3>
-              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
-                <code>{problem.sampleExpectedOutput || '(empty)'}</code>
-              </pre>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5">
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Sample Input
+                </h3>
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
+                  <code>{problem.sampleInput || '(empty)'}</code>
+                </pre>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5">
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Sample Expected Output
+                </h3>
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
+                  <code>{problem.sampleExpectedOutput || '(empty)'}</code>
+                </pre>
+              </div>
             </div>
-          </div>
+          )}
         </section>
       </div>
     </article>

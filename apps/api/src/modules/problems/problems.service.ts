@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   UpdateProblemInput,
   Problem,
+  ProblemExample,
   ProblemDifficulty,
   ProblemVisibility,
   Role,
@@ -62,6 +63,17 @@ export async function assertProblemAccess(
 ): Promise<void> {
   // 1. Archived problems continue returning intended 404
   if (problem.isArchived) {
+    throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
+  }
+
+  // Unpublished / draft problems accessible only by creator or admin
+  if ((problem as any).isPublished === false) {
+    if (
+      currentUser?.role === Role.ADMIN ||
+      (currentUser && problem.setterId && currentUser.id === problem.setterId)
+    ) {
+      return;
+    }
     throw new AppError(ERROR_CODES.NOT_FOUND, 'Problem not found', 404);
   }
 
@@ -263,6 +275,14 @@ export class ProblemsService {
         }
       }
 
+      const statementText = input.statement || input.description || '';
+      const sampleInput =
+        input.sampleInput ||
+        (input.examples && input.examples.length > 0 ? input.examples[0].input : '');
+      const sampleExpectedOutput =
+        input.sampleExpectedOutput ||
+        (input.examples && input.examples.length > 0 ? input.examples[0].output : '');
+
       const created = await db.transaction(async (tx) => {
         const [insertedProblem] = await tx
           .insert(problems)
@@ -270,14 +290,20 @@ export class ProblemsService {
             id,
             title: input.title,
             slug,
-            statement: input.statement,
+            statement: statementText,
             difficulty: input.difficulty,
             tags: input.tags,
             timeLimitMs: input.timeLimitMs,
             memoryLimitMb: input.memoryLimitMb,
-            sampleInput: input.sampleInput,
-            sampleExpectedOutput: input.sampleExpectedOutput,
+            sampleInput,
+            sampleExpectedOutput,
             visibility: input.visibility || ProblemVisibility.PUBLIC,
+            inputFormat: input.inputFormat || '',
+            outputFormat: input.outputFormat || '',
+            constraints: input.constraints || '',
+            examples: input.examples || [],
+            starterCode: input.starterCode || {},
+            isPublished: input.isPublished !== undefined ? input.isPublished : true,
             setterId,
             isArchived: false,
           })
@@ -410,6 +436,7 @@ export class ProblemsService {
     };
     if (input.title !== undefined) patch.title = input.title;
     if (input.statement !== undefined) patch.statement = input.statement;
+    else if (input.description !== undefined) patch.statement = input.description;
     if (input.difficulty !== undefined) patch.difficulty = input.difficulty;
     if (input.tags !== undefined) patch.tags = input.tags;
     if (input.timeLimitMs !== undefined) patch.timeLimitMs = input.timeLimitMs;
@@ -419,6 +446,20 @@ export class ProblemsService {
       patch.sampleExpectedOutput = input.sampleExpectedOutput;
     }
     if (input.visibility !== undefined) patch.visibility = input.visibility;
+    if (input.inputFormat !== undefined) patch.inputFormat = input.inputFormat;
+    if (input.outputFormat !== undefined) patch.outputFormat = input.outputFormat;
+    if (input.constraints !== undefined) patch.constraints = input.constraints;
+    if (input.examples !== undefined) {
+      patch.examples = input.examples;
+      if (!input.sampleInput && input.examples.length > 0) {
+        patch.sampleInput = input.examples[0].input;
+      }
+      if (!input.sampleExpectedOutput && input.examples.length > 0) {
+        patch.sampleExpectedOutput = input.examples[0].output;
+      }
+    }
+    if (input.starterCode !== undefined) patch.starterCode = input.starterCode;
+    if (input.isPublished !== undefined) patch.isPublished = input.isPublished;
 
     let updated: ProblemRecord | undefined;
     try {
@@ -428,6 +469,32 @@ export class ProblemsService {
         .where(and(eq(problems.id, id), eq(problems.isArchived, false)))
         .returning();
       updated = rows[0];
+
+      if (input.testCases && input.testCases.length > 0) {
+        const existingTcs = await db
+          .select({ index: testCases.index })
+          .from(testCases)
+          .where(eq(testCases.problemId, id))
+          .orderBy(desc(testCases.index))
+          .limit(1);
+        const startIndex = existingTcs.length > 0 ? existingTcs[0].index + 1 : 0;
+        for (let i = 0; i < input.testCases.length; i++) {
+          const tc = input.testCases[i];
+          const idx = startIndex + i;
+          const inputKey = `problems/${id}/test_${idx}_in.txt`;
+          const outputKey = `problems/${id}/test_${idx}_out.txt`;
+          await minioService.putObject(inputKey, tc.input);
+          await minioService.putObject(outputKey, tc.expectedOutput);
+          await db.insert(testCases).values({
+            id: crypto.randomUUID(),
+            problemId: id,
+            index: idx,
+            inputKey,
+            expectedOutputKey: outputKey,
+            isHidden: tc.isHidden ?? true,
+          });
+        }
+      }
     } catch (err) {
       throw mapDatabaseError(err);
     }
@@ -516,7 +583,7 @@ export class ProblemsService {
    */
   async listProblems(
     rawParams: QueryProblemsParams
-  ): Promise<{ items: Problem[]; nextCursor: string | null }> {
+  ): Promise<{ items: Problem[]; nextCursor: string | null; total?: number }> {
     const params = queryProblemsSchema.parse(rawParams);
     const limit = params.limit || 20;
     const searchText = params.search?.trim() || '';
@@ -547,6 +614,10 @@ export class ProblemsService {
             return {
               items: parsed.items as Problem[],
               nextCursor: parsed.nextCursor,
+              total:
+                typeof (parsed as any).total === 'number'
+                  ? (parsed as any).total
+                  : parsed.items.length,
             };
           }
           await this.safeDeleteKey(listCacheKey);
@@ -561,10 +632,11 @@ export class ProblemsService {
     }
 
     // 2. Build parameterized PostgreSQL WHERE conditions (strict AND semantics)
-    // Only public problems appear in the public catalog listing/search.
+    // Only public and published problems appear in the public catalog listing/search.
     const conditions: SQL[] = [
       eq(problems.isArchived, false),
       eq(problems.visibility, ProblemVisibility.PUBLIC),
+      eq(problems.isPublished, true),
     ];
 
     if (params.difficulty) {
@@ -587,6 +659,17 @@ export class ProblemsService {
 
     if (tsqueryExpr) {
       conditions.push(sql`${tsvectorExpr} @@ ${tsqueryExpr}`);
+    }
+
+    let total = 0;
+    try {
+      const [countRow] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(problems)
+        .where(and(...conditions));
+      total = countRow?.count ?? 0;
+    } catch {
+      total = 0;
     }
 
     if (cursorPayload) {
@@ -612,7 +695,7 @@ export class ProblemsService {
       }
     }
 
-    let result: { items: Problem[]; nextCursor: string | null };
+    let result: { items: Problem[]; nextCursor: string | null; total: number };
 
     try {
       if (hasSearch && rankExpr) {
@@ -640,6 +723,7 @@ export class ProblemsService {
                   rank: Number(lastEntry.rank),
                 })
               : null,
+          total,
         };
       } else {
         const rows = await db
@@ -662,6 +746,7 @@ export class ProblemsService {
                   createdAt: lastItem.createdAt.toISOString(),
                 })
               : null,
+          total,
         };
       }
     } catch (err) {
@@ -738,12 +823,29 @@ export class ProblemsService {
     } catch {}
   }
 
+  async listAdminProblems(user: { id: string; role: Role }): Promise<Problem[]> {
+    const conditions: SQL[] = [eq(problems.isArchived, false)];
+
+    if (user.role !== Role.ADMIN) {
+      conditions.push(eq(problems.setterId, user.id));
+    }
+
+    const records = await db
+      .select()
+      .from(problems)
+      .where(and(...conditions))
+      .orderBy(desc(problems.createdAt));
+
+    return records.map((p) => this.mapToDto(p));
+  }
+
   private mapToDto(p: ProblemRecord): Problem {
     return {
       id: p.id,
       title: p.title,
       slug: p.slug,
       statement: p.statement,
+      description: p.statement,
       difficulty: p.difficulty as ProblemDifficulty,
       tags: p.tags,
       timeLimitMs: p.timeLimitMs,
@@ -751,6 +853,12 @@ export class ProblemsService {
       sampleInput: p.sampleInput,
       sampleExpectedOutput: p.sampleExpectedOutput,
       visibility: (p.visibility as ProblemVisibility) || ProblemVisibility.PUBLIC,
+      inputFormat: p.inputFormat ?? '',
+      outputFormat: p.outputFormat ?? '',
+      constraints: p.constraints ?? '',
+      examples: (p.examples as ProblemExample[]) ?? [],
+      starterCode: (p.starterCode as any) ?? {},
+      isPublished: p.isPublished ?? true,
       setterId: p.setterId,
       isArchived: p.isArchived,
       createdAt: p.createdAt.toISOString(),

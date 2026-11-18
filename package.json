@@ -32,6 +32,7 @@
     "infra:verify": "tsx scripts/verify-infrastructure.ts",
     "db:generate": "pnpm --filter @judge/api db:generate",
     "db:migrate": "pnpm --filter @judge/api db:migrate",
+    "db:seed": "tsx scripts/seed.ts",
     "db:studio": "pnpm --filter @judge/api db:studio",
     "db:verify": "pnpm --filter @judge/api db:verify",
     "dev:services": "docker compose up -d",

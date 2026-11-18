@@ -107,6 +107,14 @@ export function Header({ apiStatus: _apiStatus }: HeaderProps) {
               >
                 Analytics
               </Link>
+              {(user.role === 'admin' || user.role === 'problem_setter') && (
+                <Link
+                  to="/admin/problems"
+                  className="rounded-lg px-3 py-1.5 text-sm font-medium text-amber-300 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  Manage Problems
+                </Link>
+              )}
               <NotificationBell />
               <Link
                 to="/profile"

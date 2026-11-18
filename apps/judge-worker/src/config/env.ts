@@ -3,7 +3,11 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { z } from 'zod';
 
-const envCandidates = [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../../.env')];
+const envCandidates = [
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), '../.env'),
+  resolve(process.cwd(), '../../.env'),
+];
 for (const envPath of envCandidates) {
   if (existsSync(envPath)) {
     dotenv.config({ path: envPath });

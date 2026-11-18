@@ -100,11 +100,18 @@ export interface UpdateUserProfileInput {
   portfolioUrl?: string | null;
 }
 
+export interface ProblemExample {
+  input: string;
+  output: string;
+  explanation?: string;
+}
+
 export interface Problem {
   id: string;
   title: string;
   slug: string;
   statement: string;
+  description?: string;
   difficulty: ProblemDifficulty;
   tags: string[];
   timeLimitMs: number;
@@ -112,6 +119,12 @@ export interface Problem {
   sampleInput: string;
   sampleExpectedOutput: string;
   visibility: ProblemVisibility;
+  inputFormat?: string;
+  outputFormat?: string;
+  constraints?: string;
+  examples?: ProblemExample[];
+  starterCode?: Partial<Record<SupportedLanguage, string>>;
+  isPublished?: boolean;
   setterId: string;
   isArchived: boolean;
   createdAt: string;

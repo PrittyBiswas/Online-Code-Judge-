@@ -54,6 +54,15 @@ export class ProblemsController {
       return next(err);
     }
   }
+
+  async listAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const items = await problemsService.listAdminProblems(req.user!);
+      return res.status(200).json({ data: { items, total: items.length } });
+    } catch (err) {
+      return next(err);
+    }
+  }
 }
 
 export const problemsController = new ProblemsController();

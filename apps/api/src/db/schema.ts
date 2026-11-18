@@ -1,5 +1,5 @@
 import { sql, relations } from 'drizzle-orm';
-import type { TestCaseResult } from '@judge/shared';
+import type { TestCaseResult, ProblemExample, SupportedLanguage } from '@judge/shared';
 import {
   pgTable,
   uuid,
@@ -55,6 +55,14 @@ export const problems = pgTable(
     sampleInput: text('sample_input').notNull().default(''),
     sampleExpectedOutput: text('sample_expected_output').notNull().default(''),
     visibility: varchar('visibility', { length: 20 }).notNull().default('public'),
+    inputFormat: text('input_format').default(''),
+    outputFormat: text('output_format').default(''),
+    constraints: text('constraints').default(''),
+    examples: jsonb('examples').$type<ProblemExample[]>().default([]),
+    starterCode: jsonb('starter_code')
+      .$type<Partial<Record<SupportedLanguage, string>>>()
+      .default({}),
+    isPublished: boolean('is_published').notNull().default(true),
     setterId: uuid('setter_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),

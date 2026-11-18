@@ -112,6 +112,7 @@ export function ProblemsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Problems</h1>
           <p className="mt-1 text-sm text-slate-400">
             Browse public coding challenges, filter by difficulty or tag, and inspect constraints.
+            {data?.total !== undefined && ` (${data.total} available)`}
           </p>
         </div>
         {isFetching && !isLoading && (
@@ -358,7 +359,9 @@ export function ProblemsPage() {
             <span className="text-xs text-slate-400">
               {isPlaceholderData && isFetching
                 ? 'Loading page...'
-                : `Showing ${items.length} ${items.length === 1 ? 'problem' : 'problems'}`}
+                : data?.total !== undefined
+                  ? `Showing ${items.length} of ${data.total} problems`
+                  : `Showing ${items.length} ${items.length === 1 ? 'problem' : 'problems'}`}
             </span>
 
             <button

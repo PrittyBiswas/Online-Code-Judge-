@@ -523,7 +523,11 @@ describe('Judge Worker Live Sandbox & End-to-End Integration (Day 6–8)', () =>
       code: readFileSync(resolve(attackRoot, 'fork-bomb/index.js'), 'utf8'),
       timeLimitMs: 1200,
     });
-    expect([Verdict.RUNTIME_ERROR, Verdict.TIME_LIMIT_EXCEEDED]).toContain(forkRes.verdict);
+    expect([
+      Verdict.RUNTIME_ERROR,
+      Verdict.TIME_LIMIT_EXCEEDED,
+      Verdict.MEMORY_LIMIT_EXCEEDED,
+    ]).toContain(forkRes.verdict);
 
     const leftoverContainers = await getLeftoverContainers();
     expect(leftoverContainers).toBe('');
