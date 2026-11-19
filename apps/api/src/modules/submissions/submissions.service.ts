@@ -602,7 +602,13 @@ export class SubmissionsService {
           .where(and(...conditions))
           .orderBy(desc(submissions.createdAt), desc(submissions.id))
           .limit(limitNum);
-        rows = fallbackRows as any;
+        rows = fallbackRows.map((r) => ({
+          ...r,
+          problemTitle: null,
+          problemSlug: null,
+          problemDifficulty: null,
+          contestTitle: null,
+        }));
         total = fallbackRows.length;
       }
 

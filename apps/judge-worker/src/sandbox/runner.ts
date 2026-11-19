@@ -1,4 +1,4 @@
-import { execFile, ChildProcess } from 'child_process';
+import { execFile, ChildProcess, type ExecFileException } from 'child_process';
 import crypto from 'crypto';
 import pino from 'pino';
 import { Verdict, SupportedLanguage } from '@judge/shared';
@@ -280,7 +280,7 @@ export function classifySandboxOutcome(params: {
       lowerErr.includes('cannot connect to the docker daemon') ||
       lowerErr.includes('dockerdesktoplinuxengine') ||
       lowerErr.includes('error during connect') ||
-      (error as any).code === 'ENOENT'
+      error.code === 'ENOENT'
     ) {
       return {
         verdict: Verdict.INTERNAL_ERROR,
@@ -444,7 +444,7 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
         timeout: timeLimitMs + 1500,
         maxBuffer: maxOutputBytes * 4,
       },
-      (error, out, err) => {
+      (error: ExecFileException | null, out, err) => {
         if (settled) return;
         settled = true;
 
@@ -452,8 +452,8 @@ export async function runInSandbox(options: SandboxOptions): Promise<SandboxExec
         const rawStdout = (stdout || out || '').slice(0, maxOutputBytes);
         const rawStderr = stderr || err || '';
         const exitCode =
-          child.exitCode ?? (typeof (error as any)?.code === 'number' ? (error as any).code : null);
-        const execFileTimedOut = Boolean((error as any)?.killed && !killed);
+          child.exitCode ?? (typeof error?.code === 'number' ? error.code : null);
+        const execFileTimedOut = Boolean(error?.killed && !killed);
 
         void forceRemoveContainer(containerName).then(() => {
           resolve(

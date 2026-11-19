@@ -11,6 +11,7 @@ import {
   REDIS_KEYS,
   ERROR_CODES,
   createProblemSchema,
+  problemExampleSchema,
   queryProblemsSchema,
   updateProblemSchema,
   UserProblemStatus,
@@ -35,6 +36,7 @@ export interface ProblemAccessCheckInput {
   visibility: ProblemVisibility | string;
   setterId?: string | null;
   isArchived: boolean;
+  isPublished?: boolean | null;
 }
 
 /**
@@ -68,7 +70,7 @@ export async function assertProblemAccess(
   }
 
   // Unpublished / draft problems accessible only by creator or admin
-  if ((problem as any).isPublished === false) {
+  if (problem.isPublished === false) {
     if (
       currentUser?.role === Role.ADMIN ||
       (currentUser && problem.setterId && currentUser.id === problem.setterId)
@@ -221,6 +223,38 @@ function decodeProblemCursor(rawCursor: string, hasSearch: boolean): CursorPaylo
 
   return parsed.data;
 }
+
+const cachedProblemSchema: z.ZodType<Problem> = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  slug: z.string(),
+  statement: z.string(),
+  description: z.string().optional(),
+  difficulty: z.nativeEnum(ProblemDifficulty),
+  tags: z.array(z.string()),
+  timeLimitMs: z.number(),
+  memoryLimitMb: z.number(),
+  sampleInput: z.string(),
+  sampleExpectedOutput: z.string(),
+  visibility: z.nativeEnum(ProblemVisibility),
+  inputFormat: z.string().optional(),
+  outputFormat: z.string().optional(),
+  constraints: z.string().optional(),
+  examples: z.array(problemExampleSchema).optional(),
+  starterCode: z.record(z.string()).optional(),
+  isPublished: z.boolean().optional(),
+  setterId: z.string(),
+  isArchived: z.boolean(),
+  submissionStatus: z.enum(['SOLVED', 'ATTEMPTED', 'UNATTEMPTED']).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const cachedProblemListSchema = z.object({
+  items: z.array(cachedProblemSchema),
+  nextCursor: z.string().nullable().optional(),
+  total: z.number().optional(),
+});
 
 export interface DeleteProblemResult {
   deleted: boolean;
@@ -615,23 +649,28 @@ export class ProblemsService {
       try {
         const cached = await redisClient.get(listCacheKey);
         if (cached) {
-          const parsed = JSON.parse(cached) as { items?: unknown; nextCursor?: unknown };
-          if (
-            parsed &&
-            Array.isArray(parsed.items) &&
-            (parsed.nextCursor === null || typeof parsed.nextCursor === 'string')
-          ) {
-            const rawItems = parsed.items as Problem[];
+          const parsed = JSON.parse(cached) as unknown;
+          const cacheParseResult = cachedProblemListSchema.safeParse(parsed);
+          if (cacheParseResult.success) {
+            const cachePayload = cacheParseResult.data;
+            const rawItems = cachePayload.items;
             const itemsWithStatus = await this.attachSubmissionStatuses(rawItems, userId);
+            const total =
+              typeof cachePayload.total === 'number' && Number.isFinite(cachePayload.total)
+                ? cachePayload.total
+                : rawItems.length;
+
             return {
               items: itemsWithStatus,
-              nextCursor: parsed.nextCursor,
-              total:
-                typeof (parsed as any).total === 'number'
-                  ? (parsed as any).total
-                  : parsed.items.length,
+              nextCursor: cachePayload.nextCursor ?? null,
+              total,
             };
           }
+
+          logger.warn(
+            { listCacheKey, issues: cacheParseResult.error.issues },
+            'Redis problem list cache schema validation failed; purging key and falling back to PostgreSQL'
+          );
           await this.safeDeleteKey(listCacheKey);
         }
       } catch (err) {
@@ -910,7 +949,7 @@ export class ProblemsService {
       outputFormat: p.outputFormat ?? '',
       constraints: p.constraints ?? '',
       examples: (p.examples as ProblemExample[]) ?? [],
-      starterCode: (p.starterCode as any) ?? {},
+      starterCode: p.starterCode ?? {},
       isPublished: p.isPublished ?? true,
       setterId: p.setterId,
       isArchived: p.isArchived,

@@ -1,7 +1,14 @@
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import pino from 'pino';
-import { REDIS_KEYS, SubmissionEvent, SubmissionJobData, Verdict } from '@judge/shared';
+import {
+  REDIS_KEYS,
+  SUPPORTED_LANGUAGES,
+  type SupportedLanguage,
+  SubmissionEvent,
+  SubmissionJobData,
+  Verdict,
+} from '@judge/shared';
 import type { JudgeRepository } from '../processor/judgeProcessor.js';
 import type { WorkerLifecycle } from './shutdown.js';
 
@@ -103,6 +110,37 @@ export class SubmissionRecoveryService {
         continue;
       }
 
+      const isSupportedLanguage = (lang: string): lang is SupportedLanguage =>
+        (SUPPORTED_LANGUAGES as readonly string[]).includes(lang);
+
+      if (!isSupportedLanguage(sub.language)) {
+        logger.warn(
+          { submissionId: sub.id, language: sub.language },
+          'Skipping recovery for submission with unsupported language; marking as INTERNAL_ERROR'
+        );
+        const saved = await this.repository.saveFinalVerdict({
+          id: sub.id,
+          verdict: Verdict.INTERNAL_ERROR,
+          executionTimeMs: 0,
+          memoryUsedKb: 0,
+        });
+        if (saved) {
+          report.markedInternalError++;
+          if (this.redisPublisher && this.redisPublisher.status === 'ready') {
+            const event: SubmissionEvent = {
+              submissionId: sub.id,
+              status: Verdict.INTERNAL_ERROR,
+              verdict: Verdict.INTERNAL_ERROR,
+              timestamp: Date.now(),
+            };
+            await this.redisPublisher
+              .publish(REDIS_KEYS.CHANNEL_SUBMISSION_EVENTS, JSON.stringify(event))
+              .catch(() => {});
+          }
+        }
+        continue;
+      }
+
       // Optimistic CAS reset: only ONE recovering worker wins resetStaleSubmissionToQueued
       const resetOk = await this.repository.resetStaleSubmissionToQueued(sub.id, sub.updatedAt);
       if (!resetOk) {
@@ -119,7 +157,7 @@ export class SubmissionRecoveryService {
             problemId: sub.problemId,
             userId: sub.userId,
             code: '',
-            language: sub.language as any,
+            language: sub.language,
             timeLimitMs: 2000,
             memoryLimitMb: 128,
           },

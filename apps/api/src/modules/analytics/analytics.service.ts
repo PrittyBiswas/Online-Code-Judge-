@@ -62,17 +62,20 @@ export class AnalyticsService {
 
     // 4. Global rank from Redis if available
     let globalRank: number | null = null;
-    if (isRedisHealthy() && redisClient && typeof (redisClient as any).zrevrank === 'function') {
+    if (isRedisHealthy() && redisClient && typeof redisClient.zrevrank === 'function') {
       try {
-        const rankIndex = await (redisClient as any).zrevrank(
+        const rankIndex = await redisClient.zrevrank(
           REDIS_KEYS.GLOBAL_LEADERBOARD,
           userId
         );
         if (rankIndex !== null && rankIndex !== undefined) {
           globalRank = Number(rankIndex) + 1;
         }
-      } catch (err: any) {
-        logger.debug({ err: err?.message, userId }, 'Redis rank lookup fallback');
+      } catch (err) {
+        logger.debug(
+          { err: err instanceof Error ? err.message : String(err), userId },
+          'Redis rank lookup fallback'
+        );
       }
     }
 

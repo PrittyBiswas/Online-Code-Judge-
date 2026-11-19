@@ -16,6 +16,7 @@ import {
   ContestRegistrationResponse,
   ContestUnregistrationResponse,
   LeaderboardEntry,
+  ProblemDifficulty,
   Role,
   ERROR_CODES,
   Verdict,
@@ -490,7 +491,9 @@ export class ContestsService {
         id: r.id,
         title: r.title,
         slug: r.slug,
-        difficulty: r.difficulty as any,
+        difficulty: Object.values(ProblemDifficulty).includes(r.difficulty as ProblemDifficulty)
+          ? (r.difficulty as ProblemDifficulty)
+          : ProblemDifficulty.MEDIUM,
         problemOrder: r.problemOrder,
         statement: r.statement,
         tags: r.tags,
