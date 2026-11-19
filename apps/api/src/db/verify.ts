@@ -7,12 +7,12 @@ async function verifyDatabase() {
 
   const isHealthy = await checkDatabaseConnection();
   if (!isHealthy) {
-    console.error('❌ Could not connect to PostgreSQL via Drizzle ORM.');
+    console.error(' Could not connect to PostgreSQL via Drizzle ORM.');
     console.error('   Ensure Docker Postgres is running and DATABASE_URL matches POSTGRES_PORT.');
     await closeDatabase().catch(() => {});
     process.exit(1);
   }
-  console.log('✅ Connected to PostgreSQL via Drizzle ORM (SELECT 1 succeeded).');
+  console.log(' Connected to PostgreSQL via Drizzle ORM (SELECT 1 succeeded).');
 
   // Verify core tables & Drizzle migration journal exist
   const tablesRes = await db.execute(sql`
@@ -35,7 +35,7 @@ async function verifyDatabase() {
       throw new Error(`Expected table "${required}" was not found in schema "public".`);
     }
   }
-  console.log(`✅ Verified schema tables: ${tableNames.join(', ')}`);
+  console.log(`Verified schema tables: ${tableNames.join(', ')}`);
 
   // Perform real insert -> read -> constraint check -> cleanup
   const suffix = Date.now();
@@ -117,7 +117,7 @@ async function verifyDatabase() {
     }
 
     console.log(
-      `✅ Insert/read/constraint check passed (user=${insertedUser.id}, problem=${insertedProblem.id}, testCase=${insertedTestCase.id}, submission=${readSubmission.id}).`
+      ` Insert/read/constraint check passed (user=${insertedUser.id}, problem=${insertedProblem.id}, testCase=${insertedTestCase.id}, submission=${readSubmission.id}).`
     );
   } finally {
     if (createdUserId) {
@@ -129,11 +129,11 @@ async function verifyDatabase() {
     await closeDatabase();
   }
 
-  console.log('\n🎉 All Day 4 database checks passed.');
+  console.log('\n All Day 4 database checks passed.');
 }
 
 verifyDatabase().catch(async (err) => {
-  console.error('❌ Database verification failed:', err);
+  console.error(' Database verification failed:', err);
   await closeDatabase().catch(() => {});
   process.exit(1);
 });

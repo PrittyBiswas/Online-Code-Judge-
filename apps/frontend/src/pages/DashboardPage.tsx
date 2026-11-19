@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, Bell, ExternalLink, ShieldCheck, Trophy, User } from 'lucide-react';
+import {
+  Activity,
+  ArrowRight,
+  BarChart2,
+  Bell,
+  ExternalLink,
+  History,
+  ShieldCheck,
+  Trophy,
+  User,
+} from 'lucide-react';
 import { Notification, NotificationActivityItem } from '@judge/shared';
 import { useAuth } from '../context/AuthContext';
 import { notificationsApi } from '../services/notificationsApi';
@@ -46,11 +56,50 @@ export function DashboardPage() {
             </div>
           </div>
 
-          <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Role: {user?.role}
-          </span>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/submissions"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:text-white"
+            >
+              <History className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Submissions</span>
+            </Link>
+            <Link
+              to="/analytics"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 hover:text-white"
+            >
+              <BarChart2 className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Analytics</span>
+            </Link>
+            <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Role: {user?.role}
+            </span>
+          </div>
         </div>
+      </section>
+
+      {/* Analytics Banner */}
+      <section className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/40 via-slate-900/60 to-slate-900/70 p-5">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
+            <BarChart2 className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Performance Analytics & Insights</h2>
+            <p className="text-xs text-slate-400">
+              Track your acceptance rate, problem difficulty distribution, submission heatmap, and
+              execution speed.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/analytics"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500 self-stretch sm:self-auto justify-center"
+        >
+          <span>View Analytics</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </section>
 
       {/* Grid: Recent Contest Activity & Recent Notifications */}

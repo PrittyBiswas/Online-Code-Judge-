@@ -429,7 +429,7 @@ describe('Day 5 PostgreSQL CRUD Integration Tests', () => {
 
     const badLangRes = await dispatchHttp('POST', '/api/submissions', {
       headers: { Cookie: cookie },
-      body: { problemId, code: 'print(1)', language: 'rust' },
+      body: { problemId, code: 'print(1)', language: 'cobol' },
     });
     expect(badLangRes.status).toBe(400);
 

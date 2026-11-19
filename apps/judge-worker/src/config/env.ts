@@ -3,7 +3,11 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { z } from 'zod';
 
-const envCandidates = [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../../.env')];
+const envCandidates = [
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), '../.env'),
+  resolve(process.cwd(), '../../.env'),
+];
 for (const envPath of envCandidates) {
   if (existsSync(envPath)) {
     dotenv.config({ path: envPath });
@@ -67,7 +71,7 @@ const envSchema = z.object({
   SANDBOX_TIMEOUT_MS: z.coerce.number().int().min(200).max(30000).default(2000),
   SANDBOX_MEMORY_LIMIT_MB: z.coerce.number().int().min(32).max(1024).default(128),
   SANDBOX_CPUS: z.string().default('0.5'),
-  SANDBOX_PIDS_LIMIT: z.coerce.number().int().min(16).max(256).default(64),
+  SANDBOX_PIDS_LIMIT: z.coerce.number().int().min(16).max(256).default(128),
   SANDBOX_OUTPUT_LIMIT_BYTES: z.coerce.number().int().min(1024).max(1048576).default(65536),
   SANDBOX_DOCKER_IMAGE: z.string().default('node:20-alpine'),
   SANDBOX_PYTHON_IMAGE: z.string().default('python:3.11-alpine'),

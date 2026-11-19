@@ -19,7 +19,7 @@ COPY apps/frontend/package.json ./apps/frontend/
 RUN pnpm install --frozen-lockfile
 
 # Copy source code and build
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.base.json ./
 COPY packages/shared/ ./packages/shared/
 COPY apps/frontend/ ./apps/frontend/
 

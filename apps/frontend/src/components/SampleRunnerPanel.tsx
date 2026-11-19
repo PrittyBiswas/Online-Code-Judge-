@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
   Cpu,
   EyeOff,
+  FileCode2,
   Loader2,
   Play,
   Radio,
@@ -27,6 +29,7 @@ import {
 } from '../services/submissionsApi';
 import { classifyApiError } from '../services/apiClient';
 import { CodeEditor } from './CodeEditor';
+import { VerticalSplitter } from './workspace/PanelDividers';
 import type {
   Problem,
   SampleRunOutcome,
@@ -131,6 +134,8 @@ const VERDICT_META: Record<Verdict, { label: string; badgeClass: string; isAccep
 type UiRunPhase = 'idle' | 'submitting' | 'queued' | 'running' | 'finished' | 'error';
 type ConnectionState =
   'idle' | 'connecting' | 'connected' | 'reconnecting' | 'polling' | 'completed';
+type PanelCTab = 'sample' | 'custom' | 'output' | 'submissions';
+type AutosaveStatus = 'saved' | 'saving' | 'error';
 
 const CONNECTION_LABELS: Record<ConnectionState, string> = {
   idle: '',
@@ -145,6 +150,23 @@ const SAMPLE_POLL_INTERVAL_MS = 500;
 const MAX_SAMPLE_POLL_WAIT_MS = 30000;
 const MAX_OFFICIAL_POLL_WAIT_MS = 45000;
 const MAX_OFFICIAL_POLL_ERRORS = 3;
+const AUTOSAVE_DEBOUNCE_MS = 750;
+
+function getDraftKey(problemId: string, lang: SupportedLanguage): string {
+  return `judge_code_draft_${problemId}_${lang}`;
+}
+
+function readDraft(problem: Problem, lang: SupportedLanguage): string {
+  try {
+    const val = localStorage.getItem(getDraftKey(problem.id, lang));
+    if (val !== null && val.trim().length > 0) {
+      return val;
+    }
+  } catch {
+    // Storage unavailable
+  }
+  return problem.starterCode?.[lang] || STARTER_CODE[lang];
+}
 
 function getPhaseRank(phase: UiRunPhase): number {
   if (phase === 'finished') return 2;
@@ -153,27 +175,43 @@ function getPhaseRank(phase: UiRunPhase): number {
   return -1;
 }
 
+export interface SampleRunnerPanelProps {
+  problem: Problem;
+  contestId?: string;
+  panelBHeight?: number;
+  onVerticalDragStart?: (e: React.MouseEvent | React.TouchEvent) => void;
+  onVerticalKeyDown?: (e: React.KeyboardEvent) => void;
+  isVerticalDragging?: boolean;
+}
+
 export function SampleRunnerPanel({
   problem,
   contestId,
-}: {
-  problem: Problem;
-  contestId?: string;
-}) {
+  panelBHeight,
+  onVerticalDragStart,
+  onVerticalKeyDown,
+  isVerticalDragging,
+}: SampleRunnerPanelProps) {
   const { status: authStatus } = useAuth();
   const location = useLocation();
 
   const [language, setLanguage] = useState<SupportedLanguage>('javascript');
-  const [codeByLang, setCodeByLang] = useState<Record<SupportedLanguage, string>>({
-    ...STARTER_CODE,
+  const [codeByLang, setCodeByLang] = useState<Record<SupportedLanguage, string>>(() => {
+    const initial: Record<SupportedLanguage, string> = { ...STARTER_CODE };
+    const langs: SupportedLanguage[] = ['javascript', 'python', 'c', 'cpp', 'java', 'go', 'rust'];
+    for (const l of langs) {
+      initial[l] = readDraft(problem, l);
+    }
+    return initial;
   });
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('saved');
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   // Sample & Custom run state
   const [phase, setPhase] = useState<UiRunPhase>('idle');
   const [runResult, setRunResult] = useState<SampleRunResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'sample' | 'custom' | 'output'>('sample');
+  const [activeTab, setActiveTab] = useState<PanelCTab>('sample');
   const [customInput, setCustomInput] = useState<string>('');
   const [expandedTests, setExpandedTests] = useState<Record<number, boolean>>({});
 
@@ -196,6 +234,7 @@ export function SampleRunnerPanel({
   const submitAbortRef = useRef<AbortController | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const submitInFlightRef = useRef(false);
+  const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   function closeEventSource() {
     if (eventSourceRef.current) {
@@ -209,6 +248,7 @@ export function SampleRunnerPanel({
     setSubmitPhase(next);
   }
 
+  // Handle problem id changes
   useEffect(() => {
     activeProblemIdRef.current = problem.id;
     activeSubmissionIdRef.current = null;
@@ -217,6 +257,19 @@ export function SampleRunnerPanel({
     submitAbortRef.current?.abort();
     closeEventSource();
     submitInFlightRef.current = false;
+
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+
+    // Reload drafts for this problem
+    const langs: SupportedLanguage[] = ['javascript', 'python', 'c', 'cpp', 'java', 'go', 'rust'];
+    const updatedCodes: Record<SupportedLanguage, string> = { ...STARTER_CODE };
+    for (const l of langs) {
+      updatedCodes[l] = readDraft(problem, l);
+    }
+    setCodeByLang(updatedCodes);
+    setAutosaveStatus('saved');
 
     setPhase('idle');
     setRunResult(null);
@@ -235,30 +288,75 @@ export function SampleRunnerPanel({
       sampleAbortRef.current?.abort();
       submitAbortRef.current?.abort();
       closeEventSource();
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
     };
-  }, [problem.id]);
+  }, [problem]);
 
   const currentCode = codeByLang[language];
-  const isDirty = currentCode !== STARTER_CODE[language];
+  const defaultLanguageCode = problem.starterCode?.[language] || STARTER_CODE[language];
+  const isDirty = currentCode !== defaultLanguageCode;
   const isSampleBusy = phase === 'submitting' || phase === 'queued' || phase === 'running';
   const isSubmitBusy =
     submitPhase === 'submitting' || submitPhase === 'queued' || submitPhase === 'running';
   const isEditorLocked = isSampleBusy || isSubmitBusy;
 
+  function handleLanguageChange(nextLang: SupportedLanguage) {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+    setLanguage(nextLang);
+    setConfirmResetOpen(false);
+
+    setCodeByLang((prev) => {
+      const nextDefault = problem.starterCode?.[nextLang] || STARTER_CODE[nextLang];
+      if (prev[nextLang] && prev[nextLang] !== nextDefault) {
+        return prev;
+      }
+      const draft = readDraft(problem, nextLang);
+      return { ...prev, [nextLang]: draft };
+    });
+    setAutosaveStatus('saved');
+  }
+
   function handleCodeChange(nextCode: string) {
     setCodeByLang((prev) => ({ ...prev, [language]: nextCode }));
+    setAutosaveStatus('saving');
+
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(getDraftKey(problem.id, language), nextCode);
+        setAutosaveStatus('saved');
+      } catch {
+        setAutosaveStatus('error');
+      }
+    }, AUTOSAVE_DEBOUNCE_MS);
   }
 
   function handleResetRequest() {
     if (!isDirty) {
-      setCodeByLang((prev) => ({ ...prev, [language]: STARTER_CODE[language] }));
+      setCodeByLang((prev) => ({ ...prev, [language]: defaultLanguageCode }));
       return;
     }
     setConfirmResetOpen(true);
   }
 
   function confirmReset() {
-    setCodeByLang((prev) => ({ ...prev, [language]: STARTER_CODE[language] }));
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+    try {
+      localStorage.removeItem(getDraftKey(problem.id, language));
+    } catch {
+      // Storage unavailable
+    }
+    setCodeByLang((prev) => ({ ...prev, [language]: defaultLanguageCode }));
+    setAutosaveStatus('saved');
     setConfirmResetOpen(false);
   }
 
@@ -298,40 +396,62 @@ export function SampleRunnerPanel({
       setPhase('queued');
 
       const startedAt = Date.now();
-      while (!controller.signal.aborted && activeProblemIdRef.current === targetProblemId) {
+      const intervalId = window.setInterval(async () => {
+        if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) {
+          window.clearInterval(intervalId);
+          sampleInFlightRef.current = false;
+          return;
+        }
+
         if (Date.now() - startedAt > MAX_SAMPLE_POLL_WAIT_MS) {
+          window.clearInterval(intervalId);
+          sampleInFlightRef.current = false;
           setPhase('error');
-          setErrorMessage('Execution timed out waiting for the judge worker.');
-          break;
+          setErrorMessage('Timed out waiting for sample run execution.');
+          return;
         }
 
-        await new Promise((resolve) => window.setTimeout(resolve, SAMPLE_POLL_INTERVAL_MS));
-        if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
+        try {
+          const res = await fetchSampleRunResult(queued.runId, controller.signal);
+          if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) {
+            window.clearInterval(intervalId);
+            sampleInFlightRef.current = false;
+            return;
+          }
 
-        const latest = await fetchSampleRunResult(queued.runId, controller.signal);
-        if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-
-        if (latest.status === 'QUEUED') {
-          setPhase('queued');
-          continue;
+          if (res.status === 'RUNNING') {
+            setPhase('running');
+          } else if (res.status === 'COMPLETED' || res.status === 'FAILED') {
+            window.clearInterval(intervalId);
+            sampleInFlightRef.current = false;
+            setRunResult({ ...res, isCustomInput: isCustom });
+            setPhase('finished');
+          }
+        } catch (pollErr) {
+          if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) {
+            window.clearInterval(intervalId);
+            sampleInFlightRef.current = false;
+            return;
+          }
+          const classified = classifyApiError(pollErr, 'Failed while checking sample run status.');
+          if (classified.category === 'cancelled') {
+            window.clearInterval(intervalId);
+            sampleInFlightRef.current = false;
+            return;
+          }
+          window.clearInterval(intervalId);
+          sampleInFlightRef.current = false;
+          setPhase('error');
+          setErrorMessage(classified.message);
         }
-        if (latest.status === 'RUNNING') {
-          setPhase('running');
-          continue;
-        }
-
-        setRunResult(latest);
-        setPhase('finished');
-        break;
-      }
+      }, SAMPLE_POLL_INTERVAL_MS);
     } catch (err) {
+      sampleInFlightRef.current = false;
       if (controller.signal.aborted || activeProblemIdRef.current !== targetProblemId) return;
-      const classified = classifyApiError(err, 'Failed to execute code.');
+      const classified = classifyApiError(err, 'Failed to submit sample run.');
       if (classified.category === 'cancelled') return;
       setPhase('error');
       setErrorMessage(classified.message);
-    } finally {
-      sampleInFlightRef.current = false;
     }
   }
 
@@ -348,84 +468,82 @@ export function SampleRunnerPanel({
     targetProblemId: string,
     controller: AbortController
   ) {
-    setConnectionState('polling');
     const startedAt = Date.now();
-    let pollDelayMs = 600;
     let consecutiveErrors = 0;
 
-    try {
-      while (
-        !controller.signal.aborted &&
-        activeProblemIdRef.current === targetProblemId &&
-        activeSubmissionIdRef.current === targetSubmissionId
+    const intervalId = window.setInterval(async () => {
+      if (
+        controller.signal.aborted ||
+        activeProblemIdRef.current !== targetProblemId ||
+        activeSubmissionIdRef.current !== targetSubmissionId
       ) {
-        if (Date.now() - startedAt > MAX_OFFICIAL_POLL_WAIT_MS) {
-          updateSubmitPhase('error');
-          setSubmitError(
-            'Judging is taking longer than expected. Your submission is still in progress—click Check Status to refresh.'
-          );
-          break;
-        }
+        window.clearInterval(intervalId);
+        submitInFlightRef.current = false;
+        return;
+      }
 
-        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
+      if (Date.now() - startedAt > MAX_OFFICIAL_POLL_WAIT_MS) {
+        window.clearInterval(intervalId);
+        submitInFlightRef.current = false;
+        updateSubmitPhase('error');
+        setSubmitError(
+          'Official submission is taking longer than expected. Use Check Status to check later.'
+        );
+        return;
+      }
+
+      try {
+        const sub = await fetchSubmissionById(targetSubmissionId, controller.signal);
         if (
           controller.signal.aborted ||
           activeProblemIdRef.current !== targetProblemId ||
           activeSubmissionIdRef.current !== targetSubmissionId
         ) {
+          window.clearInterval(intervalId);
+          submitInFlightRef.current = false;
           return;
         }
 
-        try {
-          const latest = await fetchSubmissionById(targetSubmissionId, controller.signal);
-          if (
-            controller.signal.aborted ||
-            activeProblemIdRef.current !== targetProblemId ||
-            activeSubmissionIdRef.current !== targetSubmissionId
-          ) {
-            return;
-          }
+        consecutiveErrors = 0;
+        setOfficialSubmission(sub);
 
-          consecutiveErrors = 0;
-          if (latest.status === SubmissionStatus.QUEUED) {
-            if (getPhaseRank(submitPhaseRef.current) < 0) updateSubmitPhase('queued');
-          } else if (latest.status === SubmissionStatus.RUNNING) {
-            if (getPhaseRank(submitPhaseRef.current) < 1) updateSubmitPhase('running');
-          } else {
-            setOfficialSubmission(latest);
-            updateSubmitPhase('finished');
-            setConnectionState('completed');
-            break;
+        if (sub.status === SubmissionStatus.RUNNING) {
+          if (getPhaseRank(submitPhaseRef.current) < 1) {
+            updateSubmitPhase('running');
           }
-        } catch (pollErr) {
-          if (
-            controller.signal.aborted ||
-            activeProblemIdRef.current !== targetProblemId ||
-            activeSubmissionIdRef.current !== targetSubmissionId
-          ) {
-            return;
-          }
-          const classified = classifyApiError(pollErr, 'Failed to check submission status.');
-          if (classified.category === 'cancelled') return;
-
-          consecutiveErrors += 1;
-          if (
-            classified.category === 'forbidden' ||
-            classified.category === 'not_found' ||
-            classified.category === 'unauthorized' ||
-            consecutiveErrors >= MAX_OFFICIAL_POLL_ERRORS
-          ) {
-            updateSubmitPhase('error');
-            setSubmitError(classified.message);
-            break;
-          }
+        } else if (sub.status === SubmissionStatus.COMPLETED) {
+          window.clearInterval(intervalId);
+          submitInFlightRef.current = false;
+          updateSubmitPhase('finished');
+          setConnectionState('completed');
+        }
+      } catch (pollErr) {
+        if (
+          controller.signal.aborted ||
+          activeProblemIdRef.current !== targetProblemId ||
+          activeSubmissionIdRef.current !== targetSubmissionId
+        ) {
+          window.clearInterval(intervalId);
+          submitInFlightRef.current = false;
+          return;
         }
 
-        pollDelayMs = Math.min(Math.round(pollDelayMs * 1.4), 2500);
+        const classified = classifyApiError(pollErr, 'Failed to poll official submission status.');
+        if (classified.category === 'cancelled') {
+          window.clearInterval(intervalId);
+          submitInFlightRef.current = false;
+          return;
+        }
+
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= MAX_OFFICIAL_POLL_ERRORS) {
+          window.clearInterval(intervalId);
+          submitInFlightRef.current = false;
+          updateSubmitPhase('error');
+          setSubmitError(classified.message);
+        }
       }
-    } finally {
-      submitInFlightRef.current = false;
-    }
+    }, 1000);
   }
 
   function startSseTracking(
@@ -433,69 +551,54 @@ export function SampleRunnerPanel({
     targetProblemId: string,
     controller: AbortController
   ) {
-    if (typeof EventSource === 'undefined') {
-      void pollSubmissionStatus(targetSubmissionId, targetProblemId, controller);
-      return;
-    }
-
     closeEventSource();
     setConnectionState('connecting');
 
-    const streamUrl = getSubmissionLiveStreamUrl(targetSubmissionId);
-    const es = new EventSource(streamUrl, { withCredentials: true });
-    eventSourceRef.current = es;
+    const sseUrl = getSubmissionLiveStreamUrl(targetSubmissionId);
     let sseErrors = 0;
-    let fallbackStarted = false;
+    let fallbackTriggered = false;
 
     const triggerPollingFallback = () => {
-      if (fallbackStarted) return;
-      fallbackStarted = true;
+      if (fallbackTriggered) return;
+      fallbackTriggered = true;
       closeEventSource();
-      if (
-        controller.signal.aborted ||
-        activeProblemIdRef.current !== targetProblemId ||
-        activeSubmissionIdRef.current !== targetSubmissionId ||
-        submitPhaseRef.current === 'finished'
-      ) {
-        submitInFlightRef.current = false;
-        return;
-      }
-      void pollSubmissionStatus(targetSubmissionId, targetProblemId, controller);
+      setConnectionState('polling');
+      pollSubmissionStatus(targetSubmissionId, targetProblemId, controller);
     };
 
+    let es: EventSource;
+    try {
+      es = new EventSource(sseUrl, { withCredentials: true });
+      eventSourceRef.current = es;
+    } catch {
+      triggerPollingFallback();
+      return;
+    }
+
     es.onopen = () => {
-      if (
-        controller.signal.aborted ||
-        activeProblemIdRef.current !== targetProblemId ||
-        activeSubmissionIdRef.current !== targetSubmissionId
-      ) {
-        es.close();
-        return;
-      }
       sseErrors = 0;
       setConnectionState('connected');
     };
 
-    es.onmessage = (msg) => {
+    es.onmessage = (rawEvent) => {
       if (
         controller.signal.aborted ||
         activeProblemIdRef.current !== targetProblemId ||
         activeSubmissionIdRef.current !== targetSubmissionId
       ) {
-        es.close();
+        closeEventSource();
+        submitInFlightRef.current = false;
         return;
       }
 
       let event: SubmissionEvent;
       try {
-        event = JSON.parse(msg.data) as SubmissionEvent;
+        event = JSON.parse(rawEvent.data) as SubmissionEvent;
       } catch {
         return;
       }
 
-      if (!event || event.submissionId !== targetSubmissionId) {
-        return;
-      }
+      if (event.submissionId !== targetSubmissionId) return;
 
       const isTerminal =
         Boolean(event.verdict) ||
@@ -584,6 +687,7 @@ export function SampleRunnerPanel({
     activeSubmissionIdRef.current = submissionId;
     setSubmitError(null);
     updateSubmitPhase('queued');
+    setActiveTab('submissions');
 
     await pollSubmissionStatus(submissionId, targetProblemId, controller);
   }
@@ -594,6 +698,7 @@ export function SampleRunnerPanel({
     if (!currentCode.trim()) {
       updateSubmitPhase('error');
       setSubmitError('Code cannot be empty before submitting.');
+      setActiveTab('submissions');
       return;
     }
 
@@ -610,6 +715,7 @@ export function SampleRunnerPanel({
     setSubmitError(null);
     setSubmissionId(null);
     setOfficialSubmission(null);
+    setActiveTab('submissions');
 
     try {
       const created = await submitOfficialSolution(
@@ -648,116 +754,18 @@ export function SampleRunnerPanel({
   return (
     <section
       aria-labelledby="sample-runner-heading"
-      className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 sm:p-8"
+      className="flex h-full flex-col overflow-hidden bg-slate-950"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 id="sample-runner-heading" className="text-lg font-semibold text-white">
-            Code Editor &amp; Submission
-          </h2>
-          <p className="text-xs text-slate-400">
-            Run Sample tests public sample input only; Submit evaluates against all official hidden
-            test cases.
-          </p>
-        </div>
+      <h2 id="sample-runner-heading" className="sr-only">
+        Code Editor &amp; Submission
+      </h2>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="editor-language" className="sr-only">
-            Programming language
-          </label>
-          <select
-            id="editor-language"
-            aria-label="Programming language"
-            value={language}
-            onChange={(e) => {
-              setLanguage(e.target.value as SupportedLanguage);
-              setConfirmResetOpen(false);
-            }}
-            disabled={isEditorLocked}
-            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-medium text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
-          >
-            <option value="javascript">JavaScript (Node 20)</option>
-            <option value="python">Python (3.11)</option>
-            <option value="c">C (GCC 13)</option>
-            <option value="cpp">C++ (G++ 13)</option>
-            <option value="java">Java (OpenJDK 21)</option>
-            <option value="go">Go (1.22)</option>
-            <option value="rust">Rust (1.77)</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={handleResetRequest}
-            disabled={isEditorLocked}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reset Code
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleRunSample()}
-            disabled={isSampleBusy || authStatus !== 'authenticated'}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSampleBusy ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {phase === 'submitting'
-                  ? 'Sending...'
-                  : phase === 'queued'
-                    ? 'Queued...'
-                    : 'Running...'}
-              </>
-            ) : (
-              <>
-                <Play className="h-3.5 w-3.5" />
-                Run Sample
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleRunCustom()}
-            disabled={isSampleBusy || authStatus !== 'authenticated'}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-950/60 px-3.5 py-2 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-900/60 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Terminal className="h-3.5 w-3.5 text-indigo-400" />
-            Run Custom
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleOfficialSubmit()}
-            disabled={isSubmitBusy || authStatus !== 'authenticated'}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitBusy ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {submitPhase === 'submitting'
-                  ? 'Submitting...'
-                  : submitPhase === 'queued'
-                    ? 'Queued...'
-                    : 'Judging...'}
-              </>
-            ) : (
-              <>
-                <Send className="h-3.5 w-3.5" />
-                Submit
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
+      {/* Confirmation Dialog */}
       {confirmResetOpen && (
         <div
           role="alertdialog"
           aria-label="Confirm code reset"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200"
         >
           <span>Discard your current {language} edits and reset to starter code?</span>
           <div className="flex items-center gap-2">
@@ -779,270 +787,220 @@ export function SampleRunnerPanel({
         </div>
       )}
 
+      {/* Unauthenticated Alert */}
       {authStatus !== 'authenticated' && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-xs text-slate-300">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/90 px-4 py-2 text-xs text-slate-300">
           <span>Sign in to run sample code or submit an official solution.</span>
           <Link
             to="/login"
             state={{ from: location }}
-            className="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400"
           >
             Sign in to Run
           </Link>
         </div>
       )}
 
-      <CodeEditor
-        language={language}
-        value={currentCode}
-        onChange={handleCodeChange}
-        readOnly={isEditorLocked}
-      />
+      {/* PANEL B: CODE EDITOR (Height controlled by panelBHeight) */}
+      <div
+        style={{
+          height: panelBHeight !== undefined ? `${panelBHeight}%` : undefined,
+        }}
+        className={`flex flex-col min-h-[220px] ${
+          panelBHeight === undefined ? 'h-[440px]' : ''
+        } overflow-hidden`}
+      >
+        {/* Editor Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/70 px-3 py-2">
+          {/* Left: Language Selector & Autosave Status */}
+          <div className="flex items-center gap-2.5">
+            <label htmlFor="editor-language" className="sr-only">
+              Programming language
+            </label>
+            <select
+              id="editor-language"
+              aria-label="Programming language"
+              value={language}
+              onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
+              disabled={isEditorLocked}
+              className="rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-medium text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
+            >
+              <option value="javascript">JavaScript (Node 20)</option>
+              <option value="python">Python (3.11)</option>
+              <option value="c">C (GCC 13)</option>
+              <option value="cpp">C++ (G++ 13)</option>
+              <option value="java">Java (OpenJDK 21)</option>
+              <option value="go">Go (1.22)</option>
+              <option value="rust">Rust (1.77)</option>
+            </select>
 
-      {submitPhase !== 'idle' && (
-        <div
-          aria-label="Official submission status"
-          className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Official Submission Verdict
-              </h3>
-              {connectionState !== 'idle' && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
-                  <Radio className="h-3 w-3 text-indigo-400" />
-                  {CONNECTION_LABELS[connectionState]}
-                </span>
+            {/* Autosave Status Indicator */}
+            <div
+              aria-live="polite"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-400 select-none"
+            >
+              {autosaveStatus === 'saving' && (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
+                  <span className="text-amber-300">Saving...</span>
+                </>
+              )}
+              {autosaveStatus === 'saved' && (
+                <>
+                  <Check className="h-3 w-3 text-emerald-400" />
+                  <span className="text-slate-300">Saved</span>
+                </>
+              )}
+              {autosaveStatus === 'error' && (
+                <>
+                  <AlertCircle className="h-3 w-3 text-rose-400" />
+                  <span className="text-rose-300">Save failed</span>
+                </>
               )}
             </div>
-
-            {submitPhase === 'submitting' && (
-              <span role="status" className="text-xs text-emerald-300">
-                Creating submission...
-              </span>
-            )}
-            {submitPhase === 'queued' && (
-              <span role="status" className="text-xs text-amber-300">
-                QUEUED — Waiting for judge worker...
-              </span>
-            )}
-            {submitPhase === 'running' && (
-              <span role="status" className="text-xs text-indigo-300">
-                RUNNING — Executing official test suite...
-              </span>
-            )}
-            {submitPhase === 'finished' && verdictMeta && (
-              <div className="flex flex-wrap items-center gap-3">
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${verdictMeta.badgeClass}`}
-                >
-                  {verdictMeta.isAccepted ? (
-                    <CheckCircle2 className="h-3 w-3" />
-                  ) : (
-                    <AlertCircle className="h-3 w-3" />
-                  )}
-                  {verdictMeta.label}
-                </span>
-                {officialSubmission?.executionTimeMs !== undefined && (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                    <Clock className="h-3 w-3" />
-                    {officialSubmission.executionTimeMs} ms
-                  </span>
-                )}
-                {officialSubmission?.memoryUsedKb !== undefined &&
-                  officialSubmission.memoryUsedKb > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                      <Cpu className="h-3 w-3" />
-                      {officialSubmission.memoryUsedKb} KB
-                    </span>
-                  )}
-              </div>
-            )}
           </div>
 
-          {submissionId && (
-            <p className="text-xs text-slate-500">
-              Submission ID: <code className="text-slate-300">{submissionId}</code>
-            </p>
-          )}
-
-          {officialSubmission?.failedTestIndex !== undefined && (
-            <p className="text-xs text-slate-300">
-              Stopped at test case #{officialSubmission.failedTestIndex + 1}
-            </p>
-          )}
-
-          {officialSubmission?.testCaseResults && officialSubmission.testCaseResults.length > 0 && (
-            <div className="mt-4 space-y-2 border-t border-slate-800 pt-3">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Test Case Breakdown ({officialSubmission.testCaseResults.length} Tests)
-              </h4>
-              <div className="space-y-2">
-                {officialSubmission.testCaseResults.map((tc, idx) => {
-                  const tcMeta = VERDICT_META[tc.verdict] || {
-                    label: tc.verdict,
-                    badgeClass: 'border-slate-700 bg-slate-800 text-slate-300',
-                    isAccepted: false,
-                  };
-                  const isExpanded = Boolean(expandedTests[idx]);
-
-                  return (
-                    <div
-                      key={idx}
-                      className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-300">Test #{idx + 1}</span>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${tcMeta.badgeClass}`}
-                          >
-                            {tcMeta.label}
-                          </span>
-                          {tc.isHidden && (
-                            <span className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-                              <EyeOff className="h-3 w-3" />
-                              Hidden
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          {tc.executionTimeMs > 0 && (
-                            <span className="text-slate-400">{tc.executionTimeMs} ms</span>
-                          )}
-                          {tc.memoryUsedKb > 0 && (
-                            <span className="text-slate-400">{tc.memoryUsedKb} KB</span>
-                          )}
-                          {!tc.isHidden && (
-                            <button
-                              type="button"
-                              onClick={() => toggleTestExpand(idx)}
-                              className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300"
-                            >
-                              {isExpanded ? (
-                                <>
-                                  <span>Hide Details</span>
-                                  <ChevronUp className="h-3 w-3" />
-                                </>
-                              ) : (
-                                <>
-                                  <span>View Details</span>
-                                  <ChevronDown className="h-3 w-3" />
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {!tc.isHidden && isExpanded && (
-                        <div className="mt-3 grid gap-2 border-t border-slate-800 pt-2 md:grid-cols-2">
-                          {tc.sampleInput !== undefined && (
-                            <div>
-                              <span className="text-[11px] font-medium text-slate-400">Input:</span>
-                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
-                                <code>{tc.sampleInput || '(empty)'}</code>
-                              </pre>
-                            </div>
-                          )}
-                          {tc.sampleExpectedOutput !== undefined && (
-                            <div>
-                              <span className="text-[11px] font-medium text-slate-400">
-                                Expected Output:
-                              </span>
-                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
-                                <code>{tc.sampleExpectedOutput || '(empty)'}</code>
-                              </pre>
-                            </div>
-                          )}
-                          {tc.actualOutput !== undefined && (
-                            <div className="md:col-span-2">
-                              <span className="text-[11px] font-medium text-slate-400">
-                                Your Output:
-                              </span>
-                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
-                                <code>{tc.actualOutput || '(empty)'}</code>
-                              </pre>
-                            </div>
-                          )}
-                          {tc.diagnostic && (
-                            <div className="md:col-span-2">
-                              <span className="text-[11px] font-medium text-rose-400">
-                                Diagnostic:
-                              </span>
-                              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-rose-300">
-                                <code>{tc.diagnostic}</code>
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {submitPhase === 'error' && submitError && (
-            <div
-              role="alert"
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+          {/* Right: Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleResetRequest}
+              disabled={isEditorLocked}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
             >
-              <span>{submitError}</span>
-              {submissionId && (
-                <button
-                  type="button"
-                  onClick={() => void handleResumeStatusCheck()}
-                  className="rounded-md border border-rose-400/40 bg-rose-500/20 px-3 py-1 font-semibold text-rose-100 hover:bg-rose-500/30 focus:outline-none focus:ring-2 focus:ring-rose-400"
-                >
-                  Check Status
-                </button>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset Code
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleRunSample()}
+              disabled={isSampleBusy || authStatus !== 'authenticated'}
+              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSampleBusy && !runResult?.isCustomInput ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {phase === 'submitting'
+                    ? 'Sending...'
+                    : phase === 'queued'
+                      ? 'Queued...'
+                      : 'Running...'}
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5" />
+                  Run Sample
+                </>
               )}
-            </div>
-          )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleRunCustom()}
+              disabled={isSampleBusy || authStatus !== 'authenticated'}
+              className="inline-flex items-center gap-1.5 rounded-md border border-indigo-500/40 bg-indigo-950/60 px-3 py-1.5 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-900/60 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Terminal className="h-3.5 w-3.5 text-indigo-400" />
+              Run Custom
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleOfficialSubmit()}
+              disabled={isSubmitBusy || authStatus !== 'authenticated'}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitBusy ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {submitPhase === 'submitting'
+                    ? 'Submitting...'
+                    : submitPhase === 'queued'
+                      ? 'Queued...'
+                      : 'Judging...'}
+                </>
+              ) : (
+                <>
+                  <Send className="h-3.5 w-3.5" />
+                  Submit
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* Editor View */}
+        <div className="flex-1 min-h-0 w-full overflow-hidden">
+          <CodeEditor
+            language={language}
+            value={currentCode}
+            onChange={handleCodeChange}
+            readOnly={isEditorLocked}
+            height="100%"
+          />
+        </div>
+      </div>
+
+      {/* Splitter between Panel B and Panel C */}
+      {onVerticalDragStart && (
+        <VerticalSplitter
+          onMouseDown={onVerticalDragStart}
+          onTouchStart={onVerticalDragStart}
+          onKeyDown={onVerticalKeyDown || (() => {})}
+          isDragging={Boolean(isVerticalDragging)}
+        />
       )}
 
-      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
-        <div className="flex border-b border-slate-800 bg-slate-900/50">
+      {/* PANEL C: EXECUTION & SUBMISSION RESULTS */}
+      <div
+        style={{
+          height:
+            panelBHeight !== undefined && onVerticalDragStart
+              ? `${100 - panelBHeight}%`
+              : undefined,
+        }}
+        className="flex flex-1 flex-col min-h-[200px] overflow-hidden border-t border-slate-800 bg-slate-950"
+      >
+        {/* Tab Headers */}
+        <div className="flex items-center border-b border-slate-800 bg-slate-900/60 px-2">
           <button
             type="button"
             onClick={() => setActiveTab('sample')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition border-b-2 ${
               activeTab === 'sample'
-                ? 'border-b-2 border-indigo-500 bg-slate-900 text-white'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'border-indigo-500 bg-slate-900 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Play className="h-3.5 w-3.5" />
-            Sample Cases
+            Test Cases
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('custom')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition border-b-2 ${
               activeTab === 'custom'
-                ? 'border-b-2 border-indigo-500 bg-slate-900 text-white'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'border-indigo-500 bg-slate-900 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Terminal className="h-3.5 w-3.5" />
             Custom Input
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('output')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition border-b-2 ${
               activeTab === 'output'
-                ? 'border-b-2 border-indigo-500 bg-slate-900 text-white'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'border-indigo-500 bg-slate-900 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Cpu className="h-3.5 w-3.5" />
-            Execution Output
+            Output
             {phase === 'running' && (
               <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
             )}
@@ -1054,31 +1012,95 @@ export function SampleRunnerPanel({
               />
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('submissions')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition border-b-2 ${
+              activeTab === 'submissions'
+                ? 'border-indigo-500 bg-slate-900 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileCode2 className="h-3.5 w-3.5" />
+            Submissions
+            {isSubmitBusy && <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />}
+            {submitPhase === 'finished' && verdictMeta && (
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  verdictMeta.isAccepted ? 'bg-emerald-400' : 'bg-rose-400'
+                }`}
+              />
+            )}
+          </button>
         </div>
 
-        <div className="p-4">
+        {/* Tab Body */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* TAB 1: TEST CASES */}
           {activeTab === 'sample' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                    Predefined Sample Case
-                  </h4>
-                  <p className="text-[11px] text-slate-500">
-                    Standard problem test case defined in the problem description. Click{' '}
-                    <strong>Run Sample</strong> in the toolbar above to test against it.
-                  </p>
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Sample Test Cases
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Standard problem test cases defined in the problem description. Click{' '}
+                  <strong>Run Sample</strong> in the toolbar above to test against them.
+                </p>
+              </div>
+
+              {problem.examples && problem.examples.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {problem.examples.map((ex, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-indigo-400">Case {idx + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomInput(ex.input);
+                            setActiveTab('custom');
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-indigo-300 underline"
+                        >
+                          Load into Stdin
+                        </button>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-semibold text-slate-500">
+                          Input:
+                        </div>
+                        <pre className="mt-0.5 rounded bg-slate-950 p-1.5 font-mono text-[11px] text-slate-200 overflow-x-auto">
+                          {ex.input}
+                        </pre>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-semibold text-slate-500">
+                          Expected Output:
+                        </div>
+                        <pre className="mt-0.5 rounded bg-slate-950 p-1.5 font-mono text-[11px] text-slate-200 overflow-x-auto">
+                          {ex.output}
+                        </pre>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
-                <span className="text-slate-400">
-                  Sample case is loaded and ready. Switch to <strong>Custom Input</strong> to test
-                  your own arbitrary input data.
-                </span>
-              </div>
+              ) : (
+                <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
+                  <span className="text-slate-400">
+                    Sample case is loaded and ready. Switch to <strong>Custom Input</strong> to test
+                    your own arbitrary input data.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
+          {/* TAB 2: CUSTOM INPUT */}
           {activeTab === 'custom' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -1095,7 +1117,7 @@ export function SampleRunnerPanel({
                     type="button"
                     onClick={() => setCustomInput('')}
                     disabled={!customInput || isSampleBusy}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
                   >
                     <Trash2 className="h-3 w-3" />
                     Clear Input
@@ -1104,7 +1126,7 @@ export function SampleRunnerPanel({
                     type="button"
                     onClick={() => void handleRunCustom()}
                     disabled={isSampleBusy || authStatus !== 'authenticated'}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
                   >
                     <Play className="h-3 w-3" />
                     Run Custom Input
@@ -1122,7 +1144,7 @@ export function SampleRunnerPanel({
                   value={customInput}
                   onChange={(e) => setCustomInput(e.target.value)}
                   placeholder="Enter custom input data here (passed via stdin)..."
-                  rows={5}
+                  rows={4}
                   disabled={isSampleBusy}
                   className="w-full resize-y rounded-lg border border-slate-800 bg-slate-900 p-3 font-mono text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
                 />
@@ -1133,6 +1155,7 @@ export function SampleRunnerPanel({
             </div>
           )}
 
+          {/* TAB 3: OUTPUT */}
           {activeTab === 'output' && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1236,6 +1259,235 @@ export function SampleRunnerPanel({
               ) : (
                 <div className="flex h-28 items-center justify-center rounded-lg border border-dashed border-slate-800 text-xs text-slate-500">
                   Run sample cases or custom input to see output.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: SUBMISSIONS */}
+          {activeTab === 'submissions' && (
+            <div className="space-y-4">
+              {submitPhase === 'idle' && !officialSubmission ? (
+                <div className="flex h-36 flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 p-6 text-center text-xs text-slate-500">
+                  <FileCode2 className="mb-2 h-6 w-6 text-slate-600" />
+                  <span>No submissions made in this session yet.</span>
+                  <span className="mt-1 text-[11px] text-slate-600">
+                    Click <strong>Submit</strong> above to test your solution against all official
+                    test cases.
+                  </span>
+                </div>
+              ) : (
+                <div
+                  aria-label="Official submission status"
+                  className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Official Submission Verdict
+                      </h3>
+                      {connectionState !== 'idle' && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                          <Radio className="h-3 w-3 text-indigo-400" />
+                          {CONNECTION_LABELS[connectionState]}
+                        </span>
+                      )}
+                    </div>
+
+                    {submitPhase === 'submitting' && (
+                      <span role="status" className="text-xs text-emerald-300">
+                        Creating submission...
+                      </span>
+                    )}
+                    {submitPhase === 'queued' && (
+                      <span role="status" className="text-xs text-amber-300">
+                        QUEUED — Waiting for judge worker...
+                      </span>
+                    )}
+                    {submitPhase === 'running' && (
+                      <span role="status" className="text-xs text-indigo-300">
+                        RUNNING — Executing official test suite...
+                      </span>
+                    )}
+                    {submitPhase === 'finished' && verdictMeta && (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${verdictMeta.badgeClass}`}
+                        >
+                          {verdictMeta.isAccepted ? (
+                            <CheckCircle2 className="h-3 w-3" />
+                          ) : (
+                            <AlertCircle className="h-3 w-3" />
+                          )}
+                          {verdictMeta.label}
+                        </span>
+                        {officialSubmission?.executionTimeMs !== undefined && (
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                            <Clock className="h-3 w-3" />
+                            {officialSubmission.executionTimeMs} ms
+                          </span>
+                        )}
+                        {officialSubmission?.memoryUsedKb !== undefined &&
+                          officialSubmission.memoryUsedKb > 0 && (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                              <Cpu className="h-3 w-3" />
+                              {officialSubmission.memoryUsedKb} KB
+                            </span>
+                          )}
+                      </div>
+                    )}
+                  </div>
+
+                  {submissionId && (
+                    <p className="text-xs text-slate-500">
+                      Submission ID: <code className="text-slate-300">{submissionId}</code>
+                    </p>
+                  )}
+
+                  {officialSubmission?.failedTestIndex !== undefined && (
+                    <p className="text-xs text-slate-300">
+                      Stopped at test case #{officialSubmission.failedTestIndex + 1}
+                    </p>
+                  )}
+
+                  {/* Phase 2 Per-Test-Case Breakdown */}
+                  {officialSubmission?.testCaseResults &&
+                    officialSubmission.testCaseResults.length > 0 && (
+                      <div className="mt-4 space-y-2 border-t border-slate-800 pt-3">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                          Test Case Breakdown ({officialSubmission.testCaseResults.length} Tests)
+                        </h4>
+                        <div className="space-y-2">
+                          {officialSubmission.testCaseResults.map((tc, idx) => {
+                            const tcMeta = VERDICT_META[tc.verdict] || {
+                              label: tc.verdict,
+                              badgeClass: 'border-slate-700 bg-slate-800 text-slate-300',
+                              isAccepted: false,
+                            };
+                            const isExpanded = Boolean(expandedTests[idx]);
+
+                            return (
+                              <div
+                                key={idx}
+                                className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-300">
+                                      Test #{idx + 1}
+                                    </span>
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${tcMeta.badgeClass}`}
+                                    >
+                                      {tcMeta.label}
+                                    </span>
+                                    {tc.isHidden && (
+                                      <span className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                                        <EyeOff className="h-3 w-3" />
+                                        Hidden
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-3">
+                                    {tc.executionTimeMs > 0 && (
+                                      <span className="text-slate-400">
+                                        {tc.executionTimeMs} ms
+                                      </span>
+                                    )}
+                                    {tc.memoryUsedKb > 0 && (
+                                      <span className="text-slate-400">{tc.memoryUsedKb} KB</span>
+                                    )}
+                                    {!tc.isHidden && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleTestExpand(idx)}
+                                        className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300"
+                                      >
+                                        {isExpanded ? (
+                                          <>
+                                            <span>Hide Details</span>
+                                            <ChevronUp className="h-3 w-3" />
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span>View Details</span>
+                                            <ChevronDown className="h-3 w-3" />
+                                          </>
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {!tc.isHidden && isExpanded && (
+                                  <div className="mt-3 grid gap-2 border-t border-slate-800 pt-2 md:grid-cols-2">
+                                    {tc.sampleInput !== undefined && (
+                                      <div>
+                                        <span className="text-[11px] font-medium text-slate-400">
+                                          Input:
+                                        </span>
+                                        <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
+                                          <code>{tc.sampleInput || '(empty)'}</code>
+                                        </pre>
+                                      </div>
+                                    )}
+                                    {tc.sampleExpectedOutput !== undefined && (
+                                      <div>
+                                        <span className="text-[11px] font-medium text-slate-400">
+                                          Expected Output:
+                                        </span>
+                                        <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
+                                          <code>{tc.sampleExpectedOutput || '(empty)'}</code>
+                                        </pre>
+                                      </div>
+                                    )}
+                                    {tc.actualOutput !== undefined && (
+                                      <div className="md:col-span-2">
+                                        <span className="text-[11px] font-medium text-slate-400">
+                                          Your Output:
+                                        </span>
+                                        <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-slate-200">
+                                          <code>{tc.actualOutput || '(empty)'}</code>
+                                        </pre>
+                                      </div>
+                                    )}
+                                    {tc.diagnostic && (
+                                      <div className="md:col-span-2">
+                                        <span className="text-[11px] font-medium text-rose-400">
+                                          Diagnostic:
+                                        </span>
+                                        <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 font-mono text-[11px] text-rose-300">
+                                          <code>{tc.diagnostic}</code>
+                                        </pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                  {submitPhase === 'error' && submitError && (
+                    <div
+                      role="alert"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                    >
+                      <span>{submitError}</span>
+                      {submissionId && (
+                        <button
+                          type="button"
+                          onClick={() => void handleResumeStatusCheck()}
+                          className="rounded-md border border-rose-400/40 bg-rose-500/20 px-3 py-1 font-semibold text-rose-100 hover:bg-rose-500/30 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                        >
+                          Check Status
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

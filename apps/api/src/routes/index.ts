@@ -7,6 +7,7 @@ import { leaderboardRouter } from '../modules/leaderboard/leaderboard.routes.js'
 import { contestsRouter } from '../modules/contests/contests.routes.js';
 import { adminRouter } from '../modules/admin/admin.routes.js';
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js';
+import { analyticsRouter } from '../modules/analytics/analytics.routes.js';
 import { sseRouter } from '../events/sse.js';
 
 const apiRouter = Router();
@@ -19,6 +20,7 @@ apiRouter.use('/submissions', sseRouter); // SSE endpoint: /api/submissions/:id/
 apiRouter.use('/leaderboard', leaderboardRouter);
 apiRouter.use('/contests', contestsRouter);
 apiRouter.use('/notifications', notificationsRouter);
+apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/admin', adminRouter);
 
 export { apiRouter };

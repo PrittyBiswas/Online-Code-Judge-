@@ -50,6 +50,11 @@ temp/
 scratch/
 .nyc_output/
 
+# ----- Database Backups & Sensitive Cleanup Artifacts -----
+scripts/data/cleanup-*.json
+*-backup.json
+cleanup-*.json
+
 # ----- Editor & IDE -----
 .vscode/settings.json
 .idea/

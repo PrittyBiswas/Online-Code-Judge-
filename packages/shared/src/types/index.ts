@@ -100,11 +100,20 @@ export interface UpdateUserProfileInput {
   portfolioUrl?: string | null;
 }
 
+export interface ProblemExample {
+  input: string;
+  output: string;
+  explanation?: string;
+}
+
+export type UserProblemStatus = 'SOLVED' | 'ATTEMPTED' | 'UNATTEMPTED';
+
 export interface Problem {
   id: string;
   title: string;
   slug: string;
   statement: string;
+  description?: string;
   difficulty: ProblemDifficulty;
   tags: string[];
   timeLimitMs: number;
@@ -112,8 +121,15 @@ export interface Problem {
   sampleInput: string;
   sampleExpectedOutput: string;
   visibility: ProblemVisibility;
+  inputFormat?: string;
+  outputFormat?: string;
+  constraints?: string;
+  examples?: ProblemExample[];
+  starterCode?: Partial<Record<SupportedLanguage, string>>;
+  isPublished?: boolean;
   setterId: string;
   isArchived: boolean;
+  submissionStatus?: UserProblemStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,8 +160,12 @@ export interface TestCaseResult {
 export interface Submission {
   id: string;
   problemId: string;
+  problemTitle?: string;
+  problemSlug?: string;
+  problemDifficulty?: ProblemDifficulty;
   userId: string;
   contestId?: string | null;
+  contestTitle?: string;
   code: string;
   language: SupportedLanguage;
   status: SubmissionStatus;
@@ -157,6 +177,41 @@ export interface Submission {
   retryCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SubmissionSummary {
+  id: string;
+  problemId: string;
+  problemTitle?: string;
+  problemSlug?: string;
+  problemDifficulty?: ProblemDifficulty;
+  userId: string;
+  contestId?: string | null;
+  contestTitle?: string;
+  language: SupportedLanguage;
+  status: SubmissionStatus;
+  verdict?: Verdict;
+  executionTimeMs?: number;
+  memoryUsedKb?: number;
+  failedTestIndex?: number;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubmissionPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface SubmissionListResponse {
+  items: SubmissionSummary[];
+  pagination: SubmissionPagination;
+  nextCursor?: string | null;
 }
 
 export interface SubmissionJobData {
@@ -382,4 +437,66 @@ export interface NotificationLiveEvent {
   userId: string;
   notification: Notification;
   timestamp: number;
+}
+
+// ============================================================================
+// Phase 5: Analytics and Performance Dashboard Types
+// ============================================================================
+
+export interface DifficultyStats {
+  solved: number;
+  total: number;
+}
+
+export interface DifficultyBreakdown {
+  easy: DifficultyStats;
+  medium: DifficultyStats;
+  hard: DifficultyStats;
+}
+
+export interface VerdictStat {
+  verdict: Verdict;
+  count: number;
+  percentage: number;
+}
+
+export interface LanguageStat {
+  language: SupportedLanguage;
+  count: number;
+  percentage: number;
+}
+
+export interface ActivityHeatmapDay {
+  date: string; // YYYY-MM-DD
+  count: number;
+  acceptedCount: number;
+}
+
+export interface PerformanceTrendPoint {
+  submissionId: string;
+  problemId: string;
+  problemTitle?: string;
+  language: SupportedLanguage;
+  verdict: Verdict;
+  executionTimeMs?: number;
+  memoryUsedKb?: number;
+  createdAt: string;
+}
+
+export interface UserAnalyticsOverview {
+  totalSubmissions: number;
+  totalAccepted: number;
+  acceptanceRate: number;
+  totalSolvedProblems: number;
+  totalAttemptedProblems: number;
+  globalRank?: number | null;
+}
+
+export interface UserAnalytics {
+  overview: UserAnalyticsOverview;
+  difficultyBreakdown: DifficultyBreakdown;
+  verdictDistribution: VerdictStat[];
+  languageUsage: LanguageStat[];
+  activityHeatmap: ActivityHeatmapDay[];
+  performanceTrends: PerformanceTrendPoint[];
 }

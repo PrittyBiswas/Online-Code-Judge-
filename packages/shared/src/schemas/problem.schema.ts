@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { ProblemDifficulty, ProblemVisibility } from '../types/index.js';
 import { LIMITS } from '../constants/index.js';
 
+export const problemExampleSchema = z.object({
+  input: z.string(),
+  output: z.string(),
+  explanation: z.string().optional(),
+});
+
 export const testCaseInputSchema = z.object({
   input: z.string(),
   expectedOutput: z.string(),
@@ -10,7 +16,8 @@ export const testCaseInputSchema = z.object({
 
 export const createProblemSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters').max(120),
-  statement: z.string().min(10, 'Problem statement must be at least 10 characters'),
+  statement: z.string().min(10, 'Problem statement must be at least 10 characters').optional(),
+  description: z.string().min(10, 'Problem description must be at least 10 characters').optional(),
   difficulty: z.nativeEnum(ProblemDifficulty).default(ProblemDifficulty.MEDIUM),
   tags: z.array(z.string()).default([]),
   timeLimitMs: z
@@ -28,6 +35,12 @@ export const createProblemSchema = z.object({
   sampleInput: z.string().default(''),
   sampleExpectedOutput: z.string().default(''),
   visibility: z.nativeEnum(ProblemVisibility).default(ProblemVisibility.PUBLIC),
+  inputFormat: z.string().optional().default(''),
+  outputFormat: z.string().optional().default(''),
+  constraints: z.string().optional().default(''),
+  examples: z.array(problemExampleSchema).optional().default([]),
+  starterCode: z.record(z.string()).optional().default({}),
+  isPublished: z.boolean().optional().default(true),
   testCases: z.array(testCaseInputSchema).optional().default([]),
 });
 
@@ -48,3 +61,4 @@ export type CreateProblemInput = z.infer<typeof createProblemSchema>;
 export type UpdateProblemInput = z.infer<typeof updateProblemSchema>;
 export type QueryProblemsInput = z.infer<typeof queryProblemsSchema>;
 export type TestCaseInput = z.infer<typeof testCaseInputSchema>;
+export type ProblemExampleInput = z.infer<typeof problemExampleSchema>;

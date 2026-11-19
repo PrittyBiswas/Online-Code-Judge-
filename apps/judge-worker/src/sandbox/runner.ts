@@ -186,7 +186,7 @@ export function buildDockerArgs(options: {
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,size=16m',
     '--tmpfs',
-    '/sandbox:rw,exec,nosuid,size=64m,uid=1000,gid=1000,mode=0700',
+    '/sandbox:rw,exec,nosuid,size=128m,uid=1000,gid=1000,mode=0700',
     '--cap-drop',
     'ALL',
     '--security-opt',
@@ -317,6 +317,23 @@ export function classifySandboxOutcome(params: {
       };
     }
 
+    const isCompileError =
+      exitCode === 65 ||
+      rawStderr.includes(COMPILE_ERROR_MARKER) ||
+      boundedStderr.includes('SyntaxError') ||
+      boundedStderr.includes('IndentationError');
+
+    if (isCompileError) {
+      return {
+        verdict: Verdict.COMPILATION_ERROR,
+        stdout: rawStdout,
+        stderr: boundedStderr.slice(0, 2048),
+        executionTimeMs: durationMs,
+        memoryUsedKb,
+        exitCode: exitCode ?? 65,
+      };
+    }
+
     const hasOomStderr =
       boundedStderr.includes('heap out of memory') ||
       boundedStderr.includes('Allocation failed') ||
@@ -336,14 +353,8 @@ export function classifySandboxOutcome(params: {
       };
     }
 
-    const isCompileError =
-      exitCode === 65 ||
-      rawStderr.includes(COMPILE_ERROR_MARKER) ||
-      boundedStderr.includes('SyntaxError') ||
-      boundedStderr.includes('IndentationError');
-
     return {
-      verdict: isCompileError ? Verdict.COMPILATION_ERROR : Verdict.RUNTIME_ERROR,
+      verdict: Verdict.RUNTIME_ERROR,
       stdout: rawStdout,
       stderr: boundedStderr.slice(0, 2048),
       executionTimeMs: durationMs,
@@ -367,8 +378,19 @@ function forceRemoveContainer(containerName: string): Promise<void> {
     execFile('docker', ['rm', '-f', containerName], { timeout: 5000 }, (rmErr, _out, rmStderr) => {
       if (rmErr) {
         const msg = String(rmStderr || rmErr.message || '');
-        if (!msg.includes('No such container')) {
+        if (
+          !msg.includes('No such container') &&
+          !msg.includes('removal of container') &&
+          !msg.includes('is already in progress')
+        ) {
           logger.warn({ containerName, err: msg }, 'Container cleanup command failed');
+        }
+        if (msg.includes('is already in progress') || msg.includes('removal of container')) {
+          setTimeout(() => {
+            workerLifecycle.unregisterContainer(containerName);
+            done();
+          }, 300);
+          return;
         }
       }
       workerLifecycle.unregisterContainer(containerName);

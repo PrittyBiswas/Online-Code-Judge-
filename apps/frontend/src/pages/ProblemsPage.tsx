@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -19,6 +20,24 @@ import { getApiErrorMessage } from '../services/apiClient';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { DifficultyBadge } from '../components/DifficultyBadge';
 import type { ProblemListQueryParams } from '../types';
+
+const ALGORITHM_CATEGORIES = [
+  'Arrays',
+  'Strings',
+  'Hash Tables',
+  'Two Pointers',
+  'Sliding Window',
+  'Binary Search',
+  'Sorting',
+  'Linked Lists',
+  'Stack and Queue',
+  'Trees and Binary Trees',
+  'Graphs',
+  'Recursion and Backtracking',
+  'Greedy Algorithms',
+  'Dynamic Programming',
+  'Mathematics',
+];
 
 export function ProblemsPage() {
   const [searchInput, setSearchInput] = useState('');
@@ -112,6 +131,7 @@ export function ProblemsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Problems</h1>
           <p className="mt-1 text-sm text-slate-400">
             Browse public coding challenges, filter by difficulty or tag, and inspect constraints.
+            {data?.total !== undefined && ` (${data.total} available)`}
           </p>
         </div>
         {isFetching && !isLoading && (
@@ -231,6 +251,28 @@ export function ProblemsPage() {
             </button>
           )}
         </div>
+
+        {/* Category Quick Filter Pills */}
+        <div className="mt-3.5 flex flex-wrap items-center gap-1.5 border-t border-slate-800/60 pt-3">
+          <span className="text-[11px] font-medium text-slate-400 mr-1">Categories:</span>
+          {ALGORITHM_CATEGORIES.map((cat) => {
+            const isSelected = tagInput.toLowerCase() === cat.toLowerCase();
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => handleTagChange(isSelected ? '' : cat)}
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                    : 'border border-slate-800 bg-slate-950/80 text-slate-300 hover:border-slate-700 hover:text-white'
+                }`}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {isLoading ? (
@@ -302,6 +344,18 @@ export function ProblemsPage() {
                         {problem.title}
                       </Link>
                       <DifficultyBadge difficulty={problem.difficulty} />
+                      {problem.submissionStatus === 'SOLVED' && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Solved
+                        </span>
+                      )}
+                      {problem.submissionStatus === 'ATTEMPTED' && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-400">
+                          <Clock className="h-3 w-3" />
+                          Attempted
+                        </span>
+                      )}
                     </div>
 
                     {problem.tags.length > 0 && (
@@ -358,7 +412,9 @@ export function ProblemsPage() {
             <span className="text-xs text-slate-400">
               {isPlaceholderData && isFetching
                 ? 'Loading page...'
-                : `Showing ${items.length} ${items.length === 1 ? 'problem' : 'problems'}`}
+                : data?.total !== undefined
+                  ? `Showing ${items.length} of ${data.total} problems`
+                  : `Showing ${items.length} ${items.length === 1 ? 'problem' : 'problems'}`}
             </span>
 
             <button

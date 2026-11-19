@@ -175,7 +175,7 @@ describe('Multi-Language Compiler & Secure Sandbox Tests (Phase 1)', () => {
         });
 
         // Dedicated executable sandbox workspace
-        expect(args).toContain('/sandbox:rw,exec,nosuid,size=64m,uid=1000,gid=1000,mode=0700');
+        expect(args).toContain('/sandbox:rw,exec,nosuid,size=128m,uid=1000,gid=1000,mode=0700');
         // /tmp remains strictly noexec
         expect(args).toContain('/tmp:rw,noexec,nosuid,size=16m');
         // Working directory set to /sandbox
@@ -256,9 +256,11 @@ describe('Multi-Language Compiler & Secure Sandbox Tests (Phase 1)', () => {
 
     it('generates two-stage compile-and-run scripts for Java with class name detection', () => {
       const javaScript = buildCompiledRunnerScript('java', 128, 'public class Solution { ... }');
-      expect(javaScript).toContain('javac -d /sandbox /sandbox/Solution.java');
       expect(javaScript).toContain(
-        'java -Xms16m -XX:+UseSerialGC -cp /sandbox Solution < /sandbox/.judge_stdin'
+        'javac -J-Xms16m -J-Xmx128m -J-XX:+UseSerialGC -d /sandbox /sandbox/Solution.java'
+      );
+      expect(javaScript).toContain(
+        'java -Xms16m -Xmx128m -XX:+UseSerialGC -cp /sandbox Solution < /sandbox/.judge_stdin'
       );
     });
 
@@ -269,8 +271,8 @@ describe('Multi-Language Compiler & Secure Sandbox Tests (Phase 1)', () => {
       expect(goScript).toContain('go build -o /sandbox/prog /sandbox/main.go');
 
       const rustScript = buildCompiledRunnerScript('rust', 128);
+      expect(rustScript).toContain('export HOME=/sandbox');
       expect(rustScript).toContain('export CARGO_HOME=/sandbox/.cargo');
-      expect(rustScript).toContain('export RUSTUP_HOME=/sandbox/.rustup');
       expect(rustScript).toContain('rustc -O -o /sandbox/prog /sandbox/main.rs');
     });
   });

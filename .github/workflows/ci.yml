@@ -1,0 +1,207 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main, 'feature/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-typecheck:
+    name: Lint, Format & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@12.18.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package declarations
+        run: pnpm build:shared
+
+      - name: Code formatting check
+        run: pnpm format:check
+
+      - name: ESLint check
+        run: pnpm lint
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@12.18.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package declarations
+        run: pnpm build:shared
+
+      - name: Run unit test suite
+        run: pnpm test
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: judge_user
+          POSTGRES_PASSWORD: judge_secret_password
+          POSTGRES_DB: judge_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U judge_user -d judge_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 4000
+      API_PORT: 4000
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: judge_user
+      POSTGRES_PASSWORD: judge_secret_password
+      POSTGRES_DB: judge_db
+      DATABASE_URL: postgresql://judge_user:judge_secret_password@localhost:5432/judge_db
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      REDIS_URL: redis://localhost:6379
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: 9000
+      MINIO_API_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BUCKET: judge-testcases
+      MINIO_BUCKET_NAME: judge-testcases
+      MINIO_USE_SSL: false
+      JWT_SECRET: test-jwt-secret-with-minimum-32-characters-key
+      COOKIE_SECRET: test-cookie-secret-with-32-characters-key
+      STUB_MAIL_URL: http://localhost:4005
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@12.18.0 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package declarations
+        run: pnpm build:shared
+
+      - name: Start MinIO service & setup testcases bucket
+        run: |
+          docker run -d --name minio --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            pgsty/silo:RELEASE.2026-11-09T00-00-00Z \
+            server /data --console-address ":9001"
+
+          for i in $(seq 1 30); do
+            if docker exec minio silo healthcheck ready >/dev/null 2>&1 || curl -s -f http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO..."
+            sleep 1
+          done
+
+          docker run --rm --network host \
+            -e MC_HOST_local=http://minioadmin:minioadmin@127.0.0.1:9000 \
+            pgsty/mc:RELEASE.2026-11-09T00-00-00Z \
+            mb --ignore-existing local/judge-testcases
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+
+      - name: Pre-pull sandbox execution images
+        run: |
+          docker pull node:20-alpine
+          docker pull python:3.11-alpine
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
+  docker-build:
+    name: Production Docker Builds
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, unit-tests, integration-tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infrastructure/docker/api/Dockerfile
+          push: false
+          tags: online-code-judge/api:latest
+
+      - name: Build Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infrastructure/docker/worker/Dockerfile
+          push: false
+          tags: online-code-judge/worker:latest
+
+      - name: Build Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infrastructure/docker/frontend/Dockerfile
+          push: false
+          tags: online-code-judge/frontend:latest

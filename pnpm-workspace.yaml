@@ -11,3 +11,6 @@ onlyBuiltDependencies:
   - bcrypt
   - esbuild
   - msgpackr-extract
+
+overrides:
+  tar: '>=7.5.19'

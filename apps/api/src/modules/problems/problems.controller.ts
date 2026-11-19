@@ -48,8 +48,17 @@ export class ProblemsController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const queryParams = queryProblemsSchema.parse(req.query);
-      const result = await problemsService.listProblems(queryParams);
+      const result = await problemsService.listProblems(queryParams, req.user?.id);
       return res.status(200).json({ data: result });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async listAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const items = await problemsService.listAdminProblems(req.user!);
+      return res.status(200).json({ data: { items, total: items.length } });
     } catch (err) {
       return next(err);
     }

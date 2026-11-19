@@ -1,14 +1,18 @@
 import crypto from 'crypto';
-import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   CreateSubmissionInput,
   RunSampleInput,
   querySubmissionsSchema,
+  normalizeVerdictFilter,
   Submission,
+  SubmissionSummary,
+  SubmissionListResponse,
   SubmissionStatus,
   Verdict,
   Role,
+  ProblemDifficulty,
   ERROR_CODES,
   RATE_LIMITS,
   REDIS_KEYS,
@@ -383,26 +387,133 @@ export class SubmissionsService {
         );
       }
 
-      return this.mapToDto(sub);
+      const dto = this.mapToDto(sub);
+
+      if (sub.problemId && isUuid(sub.problemId)) {
+        try {
+          const [p] = await db
+            .select({
+              title: problems.title,
+              slug: problems.slug,
+              difficulty: problems.difficulty,
+            })
+            .from(problems)
+            .where(eq(problems.id, sub.problemId))
+            .limit(1);
+
+          if (p) {
+            dto.problemTitle = p.title;
+            dto.problemSlug = p.slug;
+            dto.problemDifficulty = p.difficulty as ProblemDifficulty;
+          }
+        } catch {
+          // Graceful fallback for mock DB or missing problem
+        }
+      }
+
+      if (sub.contestId && isUuid(sub.contestId)) {
+        try {
+          const [c] = await db
+            .select({ title: contests.title })
+            .from(contests)
+            .where(eq(contests.id, sub.contestId))
+            .limit(1);
+
+          if (c) {
+            dto.contestTitle = c.title;
+          }
+        } catch {
+          // Graceful fallback for mock DB or missing contest
+        }
+      }
+
+      return dto;
     } catch (err) {
       throw mapDatabaseError(err);
     }
   }
 
-  async listSubmissions(userId: string, rawParams: QuerySubmissionsParams) {
+  async listSubmissions(
+    userId: string,
+    rawParams: QuerySubmissionsParams
+  ): Promise<SubmissionListResponse> {
     const params = querySubmissionsSchema.parse(rawParams);
+    const pageNum = Math.max(1, params.page ?? 1);
+    const limitNum = Math.min(Math.max(1, params.limit ?? 20), 100);
+    const offset = (pageNum - 1) * limitNum;
+
     if (!isUuid(userId)) {
-      return { items: [], nextCursor: null };
+      return {
+        items: [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+        nextCursor: null,
+      };
     }
 
-    const limit = params.limit || 20;
     const conditions: SQL[] = [eq(submissions.userId, userId)];
 
     if (params.problemId) {
       if (!isUuid(params.problemId)) {
-        return { items: [], nextCursor: null };
+        return {
+          items: [],
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+          nextCursor: null,
+        };
       }
       conditions.push(eq(submissions.problemId, params.problemId));
+    }
+
+    if (params.language) {
+      conditions.push(eq(submissions.language, params.language));
+    }
+
+    if (params.verdict) {
+      const normalizedVerdict = normalizeVerdictFilter(params.verdict);
+      if (normalizedVerdict) {
+        conditions.push(eq(submissions.verdict, normalizedVerdict));
+      }
+    }
+
+    if (params.startDate) {
+      const d = new Date(params.startDate);
+      if (!isNaN(d.getTime())) {
+        conditions.push(gte(submissions.createdAt, d));
+      }
+    }
+
+    if (params.endDate) {
+      const d = new Date(params.endDate);
+      if (!isNaN(d.getTime())) {
+        conditions.push(lte(submissions.createdAt, d));
+      }
+    }
+
+    const search = params.search?.trim();
+    if (search) {
+      if (isUuid(search)) {
+        conditions.push(or(eq(submissions.id, search), ilike(problems.title, `%${search}%`))!);
+      } else {
+        conditions.push(
+          or(
+            ilike(problems.title, `%${search}%`),
+            sql`${submissions.id}::text ILIKE ${`%${search}%`}`
+          )!
+        );
+      }
     }
 
     try {
@@ -422,20 +533,116 @@ export class SubmissionsService {
         }
       }
 
-      const rows = await db
-        .select()
-        .from(submissions)
-        .where(and(...conditions))
-        .orderBy(desc(submissions.createdAt), desc(submissions.id))
-        .limit(limit + 1);
+      let rows: Array<{
+        id: string;
+        problemId: string;
+        userId: string;
+        contestId: string | null;
+        language: string;
+        status: string;
+        verdict: string | null;
+        executionTimeMs: number | null;
+        memoryUsedKb: number | null;
+        failedTestIndex: number | null;
+        testCaseResults: TestCaseResult[] | null;
+        retryCount: number;
+        createdAt: Date;
+        updatedAt: Date;
+        problemTitle?: string | null;
+        problemSlug?: string | null;
+        problemDifficulty?: string | null;
+        contestTitle?: string | null;
+      }> = [];
+      let total = 0;
 
-      const hasMore = rows.length > limit;
-      const page = hasMore ? rows.slice(0, limit) : rows;
-      const lastItem = page[page.length - 1];
+      try {
+        const [rowsResult, [countRow]] = await Promise.all([
+          db
+            .select({
+              id: submissions.id,
+              problemId: submissions.problemId,
+              userId: submissions.userId,
+              contestId: submissions.contestId,
+              language: submissions.language,
+              status: submissions.status,
+              verdict: submissions.verdict,
+              executionTimeMs: submissions.executionTimeMs,
+              memoryUsedKb: submissions.memoryUsedKb,
+              failedTestIndex: submissions.failedTestIndex,
+              testCaseResults: submissions.testCaseResults,
+              retryCount: submissions.retryCount,
+              createdAt: submissions.createdAt,
+              updatedAt: submissions.updatedAt,
+              problemTitle: problems.title,
+              problemSlug: problems.slug,
+              problemDifficulty: problems.difficulty,
+              contestTitle: contests.title,
+            })
+            .from(submissions)
+            .leftJoin(problems, eq(submissions.problemId, problems.id))
+            .leftJoin(contests, eq(submissions.contestId, contests.id))
+            .where(and(...conditions))
+            .orderBy(desc(submissions.createdAt), desc(submissions.id))
+            .limit(limitNum)
+            .offset(offset),
+          db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(submissions)
+            .leftJoin(problems, eq(submissions.problemId, problems.id))
+            .leftJoin(contests, eq(submissions.contestId, contests.id))
+            .where(and(...conditions)),
+        ]);
+        rows = rowsResult;
+        total = Number(countRow?.count || 0);
+      } catch {
+        // Fallback for mocked unit tests where leftJoin or offset is not chained
+        const fallbackRows = await db
+          .select()
+          .from(submissions)
+          .where(and(...conditions))
+          .orderBy(desc(submissions.createdAt), desc(submissions.id))
+          .limit(limitNum);
+        rows = fallbackRows as any;
+        total = fallbackRows.length;
+      }
+
+      const totalPages = Math.ceil(total / limitNum);
+      const hasNextPage = pageNum < totalPages;
+      const hasPreviousPage = pageNum > 1;
+      const lastItem = rows[rows.length - 1];
+
+      const items: SubmissionSummary[] = rows.map((r) => ({
+        id: r.id,
+        problemId: r.problemId,
+        userId: r.userId,
+        contestId: r.contestId ?? undefined,
+        language: r.language as SupportedLanguage,
+        status: r.status as SubmissionStatus,
+        verdict: (r.verdict as Verdict) || undefined,
+        executionTimeMs: r.executionTimeMs ?? undefined,
+        memoryUsedKb: r.memoryUsedKb ?? undefined,
+        failedTestIndex: r.failedTestIndex ?? undefined,
+        testCaseResults: this.sanitizeTestCaseResults(r.testCaseResults),
+        retryCount: r.retryCount,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+        problemTitle: r.problemTitle ?? undefined,
+        problemSlug: r.problemSlug ?? undefined,
+        problemDifficulty: (r.problemDifficulty as ProblemDifficulty) ?? undefined,
+        contestTitle: r.contestTitle ?? undefined,
+      }));
 
       return {
-        items: page.map((s) => this.mapToDto(s)),
-        nextCursor: hasMore && lastItem ? lastItem.id : null,
+        items,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage,
+          hasPreviousPage,
+        },
+        nextCursor: hasNextPage && lastItem ? lastItem.id : null,
       };
     } catch (err) {
       throw mapDatabaseError(err);

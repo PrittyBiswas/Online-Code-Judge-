@@ -1,18 +1,21 @@
+export { Role, ProblemDifficulty, SubmissionStatus, Verdict } from '@judge/shared';
+
 export type {
   HealthStatusResponse,
   RootApiInfo,
-  Role,
   Problem,
-  ProblemDifficulty,
+  ProblemExample,
   SupportedLanguage,
   SampleRunStatus,
   SampleRunOutcome,
   SampleRunResult,
   Submission,
+  SubmissionSummary,
+  SubmissionPagination,
+  SubmissionListResponse,
+  QuerySubmissionsInput,
   SubmissionEvent,
-  SubmissionStatus,
   TestCaseResult,
-  Verdict,
   LeaderboardEntry,
   LeaderboardPagination,
   LeaderboardResponse,
@@ -23,6 +26,14 @@ export type {
   ContestRegistrationResponse,
   ContestUnregistrationResponse,
   CreateContestInput,
+  DifficultyStats,
+  DifficultyBreakdown,
+  VerdictStat,
+  LanguageStat,
+  ActivityHeatmapDay,
+  PerformanceTrendPoint,
+  UserAnalyticsOverview,
+  UserAnalytics,
 } from '@judge/shared';
 
 export interface LeaderboardQueryParams {
@@ -46,6 +57,7 @@ export interface PlatformFeature {
 export interface ProblemListResponse {
   items: import('@judge/shared').Problem[];
   nextCursor: string | null;
+  total?: number;
 }
 
 export interface ProblemListQueryParams {

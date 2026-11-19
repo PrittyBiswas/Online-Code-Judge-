@@ -71,6 +71,13 @@
       "when": 1794650000000,
       "tag": "0009_add_test_case_results_to_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794660000000,
+      "tag": "0010_add_problem_details_and_starter_code",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.git
+**/.github
+**/coverage
+**/tmp
+**/*.log
+.env
+.env.*
+!.env.example

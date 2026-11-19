@@ -3,6 +3,7 @@ import type {
   SampleRunResult,
   SampleRunStatus,
   Submission,
+  SubmissionListResponse,
   SubmissionStatus,
   SupportedLanguage,
 } from '../types';
@@ -99,6 +100,22 @@ export async function fetchSubmissionById(
     1
   );
   return envelope.data.submission;
+}
+
+export interface SubmissionListEnvelope {
+  data: SubmissionListResponse;
+}
+
+export async function fetchSubmissions(
+  params?: Record<string, any>,
+  signal?: AbortSignal
+): Promise<SubmissionListResponse> {
+  const envelope = await getWithRetry<SubmissionListEnvelope>(
+    '/api/submissions',
+    { params, signal },
+    1
+  );
+  return envelope.data;
 }
 
 export function getSubmissionLiveStreamUrl(submissionId: string): string {
