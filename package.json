@@ -39,6 +39,7 @@
     "stop:services": "docker compose down"
   },
   "devDependencies": {
+    "@judge/shared": "workspace:*",
     "@types/node": "^20.11.24",
     "@typescript-eslint/eslint-plugin": "^7.3.1",
     "@typescript-eslint/parser": "^7.3.1",

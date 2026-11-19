@@ -169,6 +169,9 @@ importers:
 
   .:
     devDependencies:
+      '@judge/shared':
+        specifier: workspace:*
+        version: link:packages/shared
       '@types/node':
         specifier: ^20.11.24
         version: 20.19.43
