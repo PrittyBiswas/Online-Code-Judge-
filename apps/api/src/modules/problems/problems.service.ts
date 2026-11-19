@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { and, arrayContains, desc, eq, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, arrayContains, desc, eq, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   UpdateProblemInput,
@@ -13,6 +13,7 @@ import {
   createProblemSchema,
   queryProblemsSchema,
   updateProblemSchema,
+  UserProblemStatus,
 } from '@judge/shared';
 import { db } from '../../db/index.js';
 import {
@@ -402,7 +403,15 @@ export class ProblemsService {
       }
     }
 
-    return dto;
+    if (currentUser?.id) {
+      const [singleStatus] = await this.attachSubmissionStatuses([dto], currentUser.id);
+      return singleStatus;
+    }
+
+    return {
+      ...dto,
+      submissionStatus: 'UNATTEMPTED',
+    };
   }
 
   async updateProblem(
@@ -582,7 +591,8 @@ export class ProblemsService {
    * base64url keyset cursor pagination, and versioned Redis cache-aside.
    */
   async listProblems(
-    rawParams: QueryProblemsParams
+    rawParams: QueryProblemsParams,
+    userId?: string
   ): Promise<{ items: Problem[]; nextCursor: string | null; total?: number }> {
     const params = queryProblemsSchema.parse(rawParams);
     const limit = params.limit || 20;
@@ -611,8 +621,10 @@ export class ProblemsService {
             Array.isArray(parsed.items) &&
             (parsed.nextCursor === null || typeof parsed.nextCursor === 'string')
           ) {
+            const rawItems = parsed.items as Problem[];
+            const itemsWithStatus = await this.attachSubmissionStatuses(rawItems, userId);
             return {
-              items: parsed.items as Problem[],
+              items: itemsWithStatus,
               nextCursor: parsed.nextCursor,
               total:
                 typeof (parsed as any).total === 'number'
@@ -753,7 +765,7 @@ export class ProblemsService {
       throw mapDatabaseError(err);
     }
 
-    // 3. Populate list cache with TTL
+    // 3. Populate list cache with TTL (without user-specific submission status)
     if (listCacheKey && isRedisHealthy()) {
       try {
         await redisClient.set(listCacheKey, JSON.stringify(result), 'EX', PROBLEM_LIST_TTL_SECONDS);
@@ -765,7 +777,48 @@ export class ProblemsService {
       }
     }
 
-    return result;
+    const itemsWithStatus = await this.attachSubmissionStatuses(result.items, userId);
+    return {
+      ...result,
+      items: itemsWithStatus,
+    };
+  }
+
+  private async attachSubmissionStatuses(items: Problem[], userId?: string): Promise<Problem[]> {
+    if (!userId || !isUuid(userId) || items.length === 0) {
+      return items.map((it) => ({
+        ...it,
+        submissionStatus: it.submissionStatus ?? 'UNATTEMPTED',
+      }));
+    }
+
+    try {
+      const problemIds = items.map((p) => p.id);
+      const statusRows = await db
+        .select({
+          problemId: submissions.problemId,
+          isSolved: sql<boolean>`bool_or(${submissions.verdict} IN ('ACCEPTED', 'AC'))`,
+        })
+        .from(submissions)
+        .where(and(eq(submissions.userId, userId), inArray(submissions.problemId, problemIds)))
+        .groupBy(submissions.problemId);
+
+      const statusMap = new Map<string, UserProblemStatus>();
+      for (const r of statusRows) {
+        statusMap.set(r.problemId, r.isSolved ? 'SOLVED' : 'ATTEMPTED');
+      }
+
+      return items.map((it) => ({
+        ...it,
+        submissionStatus: statusMap.get(it.id) ?? 'UNATTEMPTED',
+      }));
+    } catch (err) {
+      logger.warn({ userId, err }, 'Failed to compute user submission statuses');
+      return items.map((it) => ({
+        ...it,
+        submissionStatus: it.submissionStatus ?? 'UNATTEMPTED',
+      }));
+    }
   }
 
   private async getListCacheVersion(): Promise<string> {

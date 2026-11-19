@@ -106,6 +106,8 @@ export interface ProblemExample {
   explanation?: string;
 }
 
+export type UserProblemStatus = 'SOLVED' | 'ATTEMPTED' | 'UNATTEMPTED';
+
 export interface Problem {
   id: string;
   title: string;
@@ -127,6 +129,7 @@ export interface Problem {
   isPublished?: boolean;
   setterId: string;
   isArchived: boolean;
+  submissionStatus?: UserProblemStatus;
   createdAt: string;
   updatedAt: string;
 }

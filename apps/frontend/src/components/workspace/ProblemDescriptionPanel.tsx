@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -8,9 +9,60 @@ import {
   BookOpen,
   ListFilter,
   CheckCircle2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { DifficultyBadge } from '../DifficultyBadge';
 import type { Problem } from '../../types';
+
+interface CopyButtonProps {
+  text: string;
+  label?: string;
+}
+
+function CopyButton({ text, label = 'Copy' }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback if clipboard API is restricted
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={`${label} to clipboard`}
+      title={`${label} to clipboard`}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3 w-3 text-emerald-400" />
+          <span className="text-emerald-400 font-semibold">Copied!</span>
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" />
+          <span>Copy</span>
+        </>
+      )}
+    </button>
+  );
+}
 
 interface ProblemDescriptionPanelProps {
   problem: Problem;
@@ -200,17 +252,23 @@ export function ProblemDescriptionPanel({
                   </span>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border border-slate-800/90 bg-slate-900/90 p-3">
-                      <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-400">
-                        Input
-                      </h4>
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                          Input
+                        </h4>
+                        {ex.input && <CopyButton text={ex.input} label="Copy input snippet" />}
+                      </div>
                       <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
                         <code>{ex.input || '(empty)'}</code>
                       </pre>
                     </div>
                     <div className="rounded-lg border border-slate-800/90 bg-slate-900/90 p-3">
-                      <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-400">
-                        Output
-                      </h4>
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                          Output
+                        </h4>
+                        {ex.output && <CopyButton text={ex.output} label="Copy result snippet" />}
+                      </div>
                       <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
                         <code>{ex.output || '(empty)'}</code>
                       </pre>
@@ -228,17 +286,27 @@ export function ProblemDescriptionPanel({
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5">
-                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Sample Input
-                </h3>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Sample Input
+                  </h3>
+                  {problem.sampleInput && (
+                    <CopyButton text={problem.sampleInput} label="Copy input snippet" />
+                  )}
+                </div>
                 <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
                   <code>{problem.sampleInput || '(empty)'}</code>
                 </pre>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5">
-                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Sample Expected Output
-                </h3>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Sample Expected Output
+                  </h3>
+                  {problem.sampleExpectedOutput && (
+                    <CopyButton text={problem.sampleExpectedOutput} label="Copy result snippet" />
+                  )}
+                </div>
                 <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-slate-200">
                   <code>{problem.sampleExpectedOutput || '(empty)'}</code>
                 </pre>
