@@ -12,7 +12,7 @@ export function MainLayout({ apiStatus, children }: MainLayoutProps) {
       <Header apiStatus={apiStatus} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-12">{children}</main>
       <footer className="border-t border-slate-800/80 py-6 text-center text-xs text-slate-500">
-        Online Code Judge — Local Monorepo Foundation
+        Online Code Judge
       </footer>
     </div>
   );

@@ -44,7 +44,7 @@ export function Header({ apiStatus: _apiStatus }: HeaderProps) {
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
         <Link
           to="/"
-          className="flex items-center gap-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          className="flex items-center gap-3 rounded-lg"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">
             <Code2 className="h-5 w-5" />

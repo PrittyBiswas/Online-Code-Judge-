@@ -99,7 +99,7 @@ export class ContestsService {
           })
           .returning();
 
-        const contestProblemRows = input.problemIds.map((problemId, index) => ({
+        const contestProblemRows = input.problemIds.map((problemId: string, index: number) => ({
           contestId: insertedContest.id,
           problemId,
           problemOrder: index + 1,
